@@ -1,0 +1,51 @@
+# dependencies
+/node_modules
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+Thumbs.db
+desktop.ini
+*.pem
+
+# editor/IDE
+.vscode/
+.idea/
+.claude/
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (never commit real values)
+.env*
+!.env.example
+
+# vercel
+.vercel
+
+# uploaded media (local-disk storage backend — see src/lib/media/storage.ts)
+/public/uploads/
+
+# private uploads (resumes/CVs, etc.) — deliberately outside public/ so
+# Next.js never serves these as static files; only readable through an
+# authenticated route (see src/lib/media/storage.ts's private-file helpers)
+/private-uploads/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# prisma
+/prisma/generated

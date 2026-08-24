@@ -1,0 +1,739 @@
+// TEMPORARY — read-only source schema for the one-time PostgreSQL→MySQL
+// data migration (scripts/migrate-pg-to-mysql.ts). This is an exact copy
+// of the schema as it existed on Postgres before the MySQL conversion
+// (see prisma/schema.prisma for the live, MySQL-targeted schema and its
+// own comment on what changed and why). Generates a SEPARATE Prisma
+// Client into node_modules/.prisma/client-pg-source so it can coexist
+// with the main (MySQL) client during the migration script's run. Not
+// used by the application itself — delete this file and its generated
+// client once the migration is verified complete.
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client-pg-source"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("LEGACY_POSTGRES_DATABASE_URL")
+}
+
+enum AdminUserStatus {
+  PENDING
+  ACTIVE
+  DEACTIVATED
+}
+
+model AdminUser {
+  id           String          @id @default(cuid())
+  name         String?
+  email        String          @unique
+  passwordHash String?
+  status       AdminUserStatus @default(PENDING)
+
+  mfaSecret  String?
+  mfaEnabled Boolean @default(false)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  roles                       AdminUserRole[]
+  sessions                    Session[]
+  mfaChallenges               MfaChallenge[]
+  invitations                 AdminUserInvitation[]
+  auditLogs                   AuditLog[]             @relation("AuditLogActor")
+  assignedLeads               Lead[]                 @relation("LeadAssignedOwner")
+  siteSettingUpdates          SiteSetting[]
+  announcementBanners         AnnouncementBanner[]
+  pagesCreated                Page[]                 @relation("PageCreatedBy")
+  pagesSubmitted              Page[]                 @relation("PageSubmittedBy")
+  pageVersionsCreated         PageVersion[]          @relation("PageVersionCreatedBy")
+  pageVersionsPublished       PageVersion[]          @relation("PageVersionPublishedBy")
+  approvals                   Approval[]
+  scheduledPublications       ScheduledPublication[]
+  mediaAssetsUploaded         MediaAsset[]
+  pricingPlansCreated         PricingPlan[]          @relation("PricingPlanCreatedBy")
+  pricingPlansSubmitted       PricingPlan[]          @relation("PricingPlanSubmittedBy")
+  pricingVersionsCreated      PricingVersion[]       @relation("PricingVersionCreatedBy")
+  pricingVersionsPublished    PricingVersion[]       @relation("PricingVersionPublishedBy")
+  blogPostsCreated            BlogPost[]             @relation("BlogPostCreatedBy")
+  blogPostsSubmitted          BlogPost[]             @relation("BlogPostSubmittedBy")
+  blogPostVersionsCreated     BlogPostVersion[]      @relation("BlogPostVersionCreatedBy")
+  blogPostVersionsPublished   BlogPostVersion[]      @relation("BlogPostVersionPublishedBy")
+  resourcesCreated            Resource[]             @relation("ResourceCreatedBy")
+  resourcesSubmitted          Resource[]             @relation("ResourceSubmittedBy")
+  resourceVersionsCreated     ResourceVersion[]      @relation("ResourceVersionCreatedBy")
+  resourceVersionsPublished   ResourceVersion[]      @relation("ResourceVersionPublishedBy")
+  jobListingsCreated          JobListing[]           @relation("JobListingCreatedBy")
+  jobListingsSubmitted        JobListing[]           @relation("JobListingSubmittedBy")
+  jobListingVersionsCreated   JobListingVersion[]    @relation("JobListingVersionCreatedBy")
+  jobListingVersionsPublished JobListingVersion[]    @relation("JobListingVersionPublishedBy")
+  chatMessagesSent            ChatMessage[]          @relation("ChatMessageAgent")
+
+  @@index([status])
+}
+
+model Role {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  description     String?
+  isSystemDefault Boolean  @default(false)
+  mfaRequired     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users       AdminUserRole[]
+  permissions RolePermission[]
+}
+
+model Permission {
+  id     String @id @default(cuid())
+  module String
+  action String
+
+  roles RolePermission[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+model AdminUserRole {
+  adminUserId String
+  roleId      String
+  assignedAt  DateTime @default(now())
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, roleId])
+  @@index([roleId])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model Session {
+  id                  String    @id @default(cuid())
+  tokenHash           String    @unique
+  adminUserId         String
+  createdAt           DateTime  @default(now())
+  lastActivityAt      DateTime  @default(now())
+  expiresAt           DateTime
+  sensitiveVerifiedAt DateTime?
+  ipAddress           String?
+  userAgent           String?
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+model MfaChallenge {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  adminUserId String
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  ipAddress   String?
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+model AdminUserInvitation {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  adminUserId String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+enum AuditResult {
+  SUCCESS
+  DENIED
+  ERROR
+}
+
+model AuditLog {
+  id           String      @id @default(cuid())
+  actorId      String?
+  actorEmail   String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  before       Json?
+  after        Json?
+  result       AuditResult
+  ipAddress    String?
+  sessionId    String?
+  createdAt    DateTime    @default(now())
+
+  actor AdminUser? @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}
+
+enum LeadStatus {
+  NEW
+  ROUTED
+  SYNCED
+  SYNC_FAILED
+  ARCHIVED
+}
+
+model Submission {
+  id          String   @id @default(cuid())
+  formId      String
+  payload     Json
+  utm         Json?
+  ipHash      String?
+  submittedAt DateTime @default(now())
+
+  lead Lead?
+
+  @@index([formId])
+  @@index([submittedAt])
+}
+
+model Lead {
+  id              String     @id @default(cuid())
+  submissionId    String     @unique
+  status          LeadStatus @default(NEW)
+  source          String?
+  campaign        String?
+  assignedOwnerId String?
+  crmSyncStatus   String?
+  crmSyncedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  submission    Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  assignedOwner AdminUser? @relation("LeadAssignedOwner", fields: [assignedOwnerId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([assignedOwnerId])
+}
+
+model SiteSetting {
+  id              String   @id @default(cuid())
+  group           String
+  key             String
+  value           Json
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  updatedBy AdminUser? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([group, key])
+  @@index([group])
+}
+
+model AnnouncementBanner {
+  id              String    @id @default(cuid())
+  message         String
+  link            String?
+  startDate       DateTime?
+  endDate         DateTime?
+  dismissible     Boolean   @default(true)
+  targetZone      String    @default("sitewide")
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  createdBy AdminUser? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([startDate, endDate])
+}
+
+enum PageClassification {
+  STANDARD
+  PRICING
+  LEGAL
+  SECURITY
+}
+
+enum ContentStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ApprovalDecision {
+  APPROVE
+  REQUEST_CHANGES
+}
+
+model Page {
+  id                String             @id @default(cuid())
+  slug              String             @unique
+  title             String
+  templateType      String             @default("standard")
+  classification    PageClassification @default(STANDARD)
+  status            ContentStatus      @default(DRAFT)
+  currentVersionId  String?            @unique
+  submittedByUserId String?
+  reviewComment     String?
+  createdByUserId   String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  currentVersion PageVersion?  @relation("PageCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       PageVersion[] @relation("PageVersions")
+  createdBy      AdminUser?    @relation("PageCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?    @relation("PageSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([classification])
+}
+
+model PageVersion {
+  id                String    @id @default(cuid())
+  pageId            String
+  versionNumber     Int
+  title             String
+  componentBlocks   Json
+  createdByUserId   String?
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdAt         DateTime  @default(now())
+
+  page           Page       @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
+  currentForPage Page?      @relation("PageCurrentVersion")
+  createdBy      AdminUser? @relation("PageVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy    AdminUser? @relation("PageVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([pageId, versionNumber])
+  @@index([pageId])
+}
+
+model Approval {
+  id           String           @id @default(cuid())
+  resourceType String
+  resourceId   String
+  actorId      String?
+  decision     ApprovalDecision
+  comment      String?
+  decidedAt    DateTime         @default(now())
+
+  actor AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+}
+
+model ScheduledPublication {
+  id              String    @id @default(cuid())
+  resourceType    String
+  resourceId      String
+  scheduledFor    DateTime
+  executedAt      DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+
+  createdBy AdminUser? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([scheduledFor])
+}
+
+model MediaAsset {
+  id                    String   @id @default(cuid())
+  filename              String
+  url                   String
+  altText               String
+  caption               String?
+  fileType              String
+  fileSize              Int
+  width                 Int?
+  height                Int?
+  folder                String?
+  tags                  String[]
+  responsiveDerivatives Json?
+  archived              Boolean  @default(false)
+  uploadedByUserId      String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  uploadedBy       AdminUser?        @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  blogPostVersions BlogPostVersion[]
+
+  @@index([archived])
+  @@index([fileType])
+  @@index([folder])
+}
+
+enum PricingVisibility {
+  PUBLIC
+  HIDDEN
+}
+
+model PricingPlan {
+  id                String            @id @default(cuid())
+  slug              String            @unique
+  visibility        PricingVisibility @default(PUBLIC)
+  featured          Boolean           @default(false)
+  recommended       Boolean           @default(false)
+  order             Int               @default(0)
+  status            ContentStatus     @default(DRAFT)
+  currentVersionId  String?           @unique
+  submittedByUserId String?
+  reviewComment     String?
+  createdByUserId   String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  currentVersion PricingVersion?  @relation("PricingPlanCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       PricingVersion[] @relation("PricingPlanVersions")
+  createdBy      AdminUser?       @relation("PricingPlanCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?       @relation("PricingPlanSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  promotionLinks PromotionPlan[]
+
+  @@index([status])
+}
+
+model PricingVersion {
+  id                String    @id @default(cuid())
+  pricingPlanId     String
+  versionNumber     Int
+  monthlyPrice      Float?
+  annualPrice       Float?
+  currency          String    @default("USD")
+  trialPeriodDays   Int?
+  ctaTarget         String    @default("/trial")
+  effectiveDate     DateTime?
+  expirationDate    DateTime?
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  plan           PricingPlan             @relation("PricingPlanVersions", fields: [pricingPlanId], references: [id], onDelete: Cascade)
+  currentForPlan PricingPlan?            @relation("PricingPlanCurrentVersion")
+  createdBy      AdminUser?              @relation("PricingVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy    AdminUser?              @relation("PricingVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  features       PricingVersionFeature[]
+
+  @@unique([pricingPlanId, versionNumber])
+  @@index([pricingPlanId])
+}
+
+model PricingFeature {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  translations Json
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  versionLinks PricingVersionFeature[]
+}
+
+model PricingVersionFeature {
+  pricingVersionId String
+  pricingFeatureId String
+  value            String
+
+  version PricingVersion @relation(fields: [pricingVersionId], references: [id], onDelete: Cascade)
+  feature PricingFeature @relation(fields: [pricingFeatureId], references: [id], onDelete: Cascade)
+
+  @@id([pricingVersionId, pricingFeatureId])
+  @@index([pricingFeatureId])
+}
+
+model Promotion {
+  id            String    @id @default(cuid())
+  translations  Json
+  discountType  String    @default("PERCENTAGE")
+  discountValue Float
+  startDate     DateTime?
+  endDate       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  planLinks PromotionPlan[]
+}
+
+model PromotionPlan {
+  promotionId   String
+  pricingPlanId String
+
+  promotion Promotion   @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  plan      PricingPlan @relation(fields: [pricingPlanId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, pricingPlanId])
+  @@index([pricingPlanId])
+}
+
+model Author {
+  id           String   @id @default(cuid())
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  posts BlogPost[]
+}
+
+model Category {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  postLinks BlogPostVersionCategory[]
+}
+
+model Tag {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  postLinks BlogPostVersionTag[]
+}
+
+model BlogPost {
+  id                String        @id @default(cuid())
+  slug              String        @unique
+  authorId          String?
+  featured          Boolean       @default(false)
+  status            ContentStatus @default(DRAFT)
+  currentVersionId  String?       @unique
+  submittedByUserId String?
+  reviewComment     String?
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  author         Author?           @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  currentVersion BlogPostVersion?  @relation("BlogPostCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       BlogPostVersion[] @relation("BlogPostVersions")
+  createdBy      AdminUser?        @relation("BlogPostCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?        @relation("BlogPostSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+model BlogPostVersion {
+  id                String    @id @default(cuid())
+  blogPostId        String
+  versionNumber     Int
+  publishedDate     DateTime?
+  updatedDate       DateTime?
+  heroImageId       String?
+  relatedPostSlugs  String[]
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  post           BlogPost                  @relation("BlogPostVersions", fields: [blogPostId], references: [id], onDelete: Cascade)
+  currentForPost BlogPost?                 @relation("BlogPostCurrentVersion")
+  heroImage      MediaAsset?               @relation(fields: [heroImageId], references: [id], onDelete: SetNull)
+  createdBy      AdminUser?                @relation("BlogPostVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy    AdminUser?                @relation("BlogPostVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  categories     BlogPostVersionCategory[]
+  tags           BlogPostVersionTag[]
+
+  @@unique([blogPostId, versionNumber])
+  @@index([blogPostId])
+}
+
+model BlogPostVersionCategory {
+  blogPostVersionId String
+  categoryId        String
+
+  version  BlogPostVersion @relation(fields: [blogPostVersionId], references: [id], onDelete: Cascade)
+  category Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([blogPostVersionId, categoryId])
+  @@index([categoryId])
+}
+
+model BlogPostVersionTag {
+  blogPostVersionId String
+  tagId             String
+
+  version BlogPostVersion @relation(fields: [blogPostVersionId], references: [id], onDelete: Cascade)
+  tag     Tag             @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([blogPostVersionId, tagId])
+  @@index([tagId])
+}
+
+enum ResourceFormat {
+  GUIDE
+  TEMPLATE
+  WHITEPAPER
+  WEBINAR
+}
+
+model Resource {
+  id                String         @id @default(cuid())
+  slug              String         @unique
+  resourceFormat    ResourceFormat
+  gated             Boolean        @default(true)
+  status            ContentStatus  @default(DRAFT)
+  currentVersionId  String?        @unique
+  submittedByUserId String?
+  reviewComment     String?
+  createdByUserId   String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  currentVersion ResourceVersion?  @relation("ResourceCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       ResourceVersion[] @relation("ResourceVersions")
+  createdBy      AdminUser?        @relation("ResourceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?        @relation("ResourceSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([resourceFormat])
+}
+
+model ResourceVersion {
+  id                String    @id @default(cuid())
+  resourceId        String
+  versionNumber     Int
+  eventDate         DateTime?
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  resource           Resource   @relation("ResourceVersions", fields: [resourceId], references: [id], onDelete: Cascade)
+  currentForResource Resource?  @relation("ResourceCurrentVersion")
+  createdBy          AdminUser? @relation("ResourceVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy        AdminUser? @relation("ResourceVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([resourceId, versionNumber])
+  @@index([resourceId])
+}
+
+model JobListing {
+  id                String        @id @default(cuid())
+  slug              String        @unique
+  status            ContentStatus @default(DRAFT)
+  currentVersionId  String?       @unique
+  submittedByUserId String?
+  reviewComment     String?
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  currentVersion JobListingVersion?  @relation("JobListingCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       JobListingVersion[] @relation("JobListingVersions")
+  createdBy      AdminUser?          @relation("JobListingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?          @relation("JobListingSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  applications   JobApplication[]
+
+  @@index([status])
+}
+
+model JobListingVersion {
+  id                String    @id @default(cuid())
+  jobListingId      String
+  versionNumber     Int
+  datePosted        DateTime?
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  jobListing        JobListing  @relation("JobListingVersions", fields: [jobListingId], references: [id], onDelete: Cascade)
+  currentForListing JobListing? @relation("JobListingCurrentVersion")
+  createdBy         AdminUser?  @relation("JobListingVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy       AdminUser?  @relation("JobListingVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([jobListingId, versionNumber])
+  @@index([jobListingId])
+}
+
+model JobApplication {
+  id               String   @id @default(cuid())
+  jobListingId     String?
+  jobTitleSnapshot String
+  fullName         String
+  email            String
+  portfolioUrl     String?
+  gender           String?
+  veteranStatus    String?
+  resumeUrl        String
+  resumeFilename   String
+  resumeFileType   String
+  resumeFileSize   Int
+  ipHash           String?
+  submittedAt      DateTime @default(now())
+
+  jobListing JobListing? @relation(fields: [jobListingId], references: [id], onDelete: SetNull)
+
+  @@index([jobListingId])
+  @@index([submittedAt])
+}
+
+enum ChatConversationStatus {
+  OPEN
+  CLOSED
+}
+
+model ChatConversation {
+  id            String                 @id @default(cuid())
+  visitorToken  String                 @unique
+  status        ChatConversationStatus @default(OPEN)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  lastMessageAt DateTime               @default(now())
+
+  messages ChatMessage[]
+
+  @@index([status, lastMessageAt])
+}
+
+enum ChatMessageSender {
+  VISITOR
+  AGENT
+}
+
+model ChatMessage {
+  id             String            @id @default(cuid())
+  conversationId String
+  sender         ChatMessageSender
+  body           String
+  agentUserId    String?
+  createdAt      DateTime          @default(now())
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentUser    AdminUser?       @relation("ChatMessageAgent", fields: [agentUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+}

@@ -1,0 +1,1546 @@
+// ZynReach Admin (System B) — Phase 1 data model.
+//
+// Scope: Authentication & Access Control, Audit, and the Leads-ingestion
+// slice only — per the approved Phase 1 plan. No CMS/Pricing/Media/
+// Navigation/SEO/Integration entities exist yet; those are later-phase
+// work and are deliberately absent here, not forgotten.
+//
+// Every entity below traces to the System B SRS:
+//   §8, §23, §28 — AdminUser, Role, Permission, AdminUserRole,
+//                  RolePermission (module × action, extensible catalog)
+//   §30           — Session (30-min inactivity timeout, invalidation on
+//                    role/permission change — both enforced in code,
+//                    Section "Session" below)
+//   §23, §30      — MfaChallenge (TOTP second factor for Super
+//                    Administrator / Publisher roles)
+//   §25           — AuditLog (append-only; actor, action, resource,
+//                    before/after, result, IP/session metadata)
+//   §20.2, §28.2, §33.3 — Submission, Lead (Phase 1's leads-ingestion
+//                    vertical slice; Form/FormField themselves are
+//                    later-phase — Submission.formId is a plain string
+//                    identifier, not a foreign key into an unbuilt Form
+//                    table, matching the exact minimal dependency Phase 1
+//                    needs and nothing more)
+//
+// Database engine: MySQL (migrated from PostgreSQL — see
+// docs/POSTGRES_TO_MYSQL_MIGRATION.md for the full migration report).
+// Two Postgres-only constructs required real conversion, not just a
+// provider swap: native `String[]` columns (MySQL/Prisma has no array
+// scalar type) became `Json`, and free-text `String` columns that Prisma
+// would otherwise default to `VARCHAR(191)` on MySQL are explicitly
+// `@db.Text` wherever the field holds genuine prose/URLs/arbitrary-length
+// content — Postgres's plain `text` type was always unbounded, so leaving
+// these at the MySQL connector's 191-char default would silently truncate
+// real content the application never constrained before. Short
+// identifiers, slugs, emails, hashes, and enum-like codes are left at the
+// default VARCHAR(191), which comfortably fits all of them.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Authentication & Access Control (SRS §8, §23, §28)
+// ---------------------------------------------------------------------------
+
+enum AdminUserStatus {
+  PENDING
+  ACTIVE
+  DEACTIVATED
+}
+
+/// An internal ZynReach staff account authenticated into System B.
+/// Account lifecycle is soft-only (SRS §23): a DEACTIVATED account is
+/// never hard-deleted while it has AuditLog history, which in practice
+/// means never — every account eventually has some AuditLog entry.
+model AdminUser {
+  id           String          @id @default(cuid())
+  /// Null until the invited person completes first-time setup — the
+  /// Admin who creates the account only ever supplies an email + role;
+  /// the account holder chooses their own display name themselves, at
+  /// the same moment they set their password (accept-invite POST,
+  /// mirroring the passwordHash/status split documented below).
+  name         String?
+  email        String          @unique
+  /// Null while the account is PENDING (invited, not yet activated) — the
+  /// Super Administrator who creates the account never chooses or sees a
+  /// password; the invited user sets it themselves via the accept-invite
+  /// flow (lib/auth/invitations.ts), at which point status flips to ACTIVE
+  /// in the same write. The login route's existing `status !== "ACTIVE"`
+  /// gate (checked before any password comparison) already guarantees this
+  /// is never read as a string for a PENDING account.
+  passwordHash String?
+  status       AdminUserStatus @default(PENDING)
+
+  /// TOTP secret, present only once MFA has been enrolled. Never null for
+  /// an account holding a role with mfaRequired = true once it has
+  /// completed enrollment; enforced in application code (Section
+  /// lib/auth/mfa.ts), not a DB constraint, since a Super Administrator
+  /// mid-enrollment is a valid transient state.
+  mfaSecret  String?
+  mfaEnabled Boolean @default(false)
+
+  lastLoginAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  roles                          AdminUserRole[]
+  sessions                       Session[]
+  mfaChallenges                  MfaChallenge[]
+  invitations                    AdminUserInvitation[]
+  auditLogs                      AuditLog[]             @relation("AuditLogActor")
+  assignedLeads                  Lead[]                 @relation("LeadAssignedOwner")
+  siteSettingUpdates             SiteSetting[]
+  announcementBanners            AnnouncementBanner[]
+  pagesCreated                   Page[]                 @relation("PageCreatedBy")
+  pagesSubmitted                 Page[]                 @relation("PageSubmittedBy")
+  pageVersionsCreated            PageVersion[]          @relation("PageVersionCreatedBy")
+  pageVersionsPublished          PageVersion[]          @relation("PageVersionPublishedBy")
+  approvals                      Approval[]
+  scheduledPublications          ScheduledPublication[]
+  mediaAssetsUploaded            MediaAsset[]
+  pricingPlansCreated            PricingPlan[]          @relation("PricingPlanCreatedBy")
+  pricingPlansSubmitted          PricingPlan[]          @relation("PricingPlanSubmittedBy")
+  pricingVersionsCreated         PricingVersion[]       @relation("PricingVersionCreatedBy")
+  pricingVersionsPublished       PricingVersion[]       @relation("PricingVersionPublishedBy")
+  blogPostsCreated               BlogPost[]             @relation("BlogPostCreatedBy")
+  blogPostsSubmitted             BlogPost[]             @relation("BlogPostSubmittedBy")
+  blogPostVersionsCreated        BlogPostVersion[]      @relation("BlogPostVersionCreatedBy")
+  blogPostVersionsPublished      BlogPostVersion[]      @relation("BlogPostVersionPublishedBy")
+  resourcesCreated               Resource[]             @relation("ResourceCreatedBy")
+  resourcesSubmitted             Resource[]             @relation("ResourceSubmittedBy")
+  resourceVersionsCreated        ResourceVersion[]      @relation("ResourceVersionCreatedBy")
+  resourceVersionsPublished      ResourceVersion[]      @relation("ResourceVersionPublishedBy")
+  jobListingsCreated             JobListing[]           @relation("JobListingCreatedBy")
+  jobListingsSubmitted           JobListing[]           @relation("JobListingSubmittedBy")
+  jobListingVersionsCreated      JobListingVersion[]    @relation("JobListingVersionCreatedBy")
+  jobListingVersionsPublished    JobListingVersion[]    @relation("JobListingVersionPublishedBy")
+  chatMessagesSent               ChatMessage[]          @relation("ChatMessageAgent")
+  customerStoriesCreated         CustomerStory[]        @relation("CustomerStoryCreatedBy")
+  customerStoriesSubmitted       CustomerStory[]        @relation("CustomerStorySubmittedBy")
+  customerStoryVersionsCreated   CustomerStoryVersion[] @relation("CustomerStoryVersionCreatedBy")
+  customerStoryVersionsPublished CustomerStoryVersion[] @relation("CustomerStoryVersionPublishedBy")
+  webinarsCreated                Webinar[]              @relation("WebinarCreatedBy")
+  webinarsSubmitted              Webinar[]              @relation("WebinarSubmittedBy")
+  webinarVersionsCreated         WebinarVersion[]       @relation("WebinarVersionCreatedBy")
+  webinarVersionsPublished       WebinarVersion[]       @relation("WebinarVersionPublishedBy")
+  docArticlesCreated             DocArticle[]
+  apiEndpointsCreated            ApiEndpoint[]
+  redirectsCreated                Redirect[]
+  faqItemsCreated                 FaqItem[]
+
+  @@index([status])
+}
+
+/// A named, reusable permission set (SRS §8). Not a hardcoded enum —
+/// "Roles must be treated as an extensible catalog" (§8) — new roles are
+/// created by cloning an existing role's permission set (§23), which is
+/// exactly what this join-table shape supports without a schema change.
+model Role {
+  id              String   @id @default(cuid())
+  name            String   @unique
+  description     String?  @db.Text
+  /// True for roles seeded at Phase 1 setup (e.g. Super Administrator) —
+  /// informational only, does not restrict editing; SRS §8 requires the
+  /// catalog stay extensible, not that seed roles be immutable.
+  isSystemDefault Boolean  @default(false)
+  /// Data-driven MFA gate (SRS §30: "MFA available and required for
+  /// Super Administrator and Publisher roles"). A field on Role, not a
+  /// hardcoded role-name check in application code, so the requirement
+  /// stays correct even as the role catalog is extended later (§8).
+  mfaRequired     Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  users       AdminUserRole[]
+  permissions RolePermission[]
+}
+
+/// A single Module × Action grant (SRS §8's "Permission dimensions").
+/// module/action are free strings, not enums — the SRS explicitly lists
+/// module scope (Pages, Blog, ... Audit Log) and action scope (View,
+/// Create, ... Manage Settings) as catalogs that later modules extend;
+/// an enum would need a migration every time a later phase adds a
+/// module, which directly conflicts with "extensible, not a fixed enum."
+/// Naming convention: "module:action" strings are composed from these
+/// two columns wherever displayed/logged (lib/rbac.ts), never stored
+/// pre-joined, so module and action stay independently queryable.
+model Permission {
+  id     String @id @default(cuid())
+  module String
+  action String
+
+  roles RolePermission[]
+
+  @@unique([module, action])
+  @@index([module])
+}
+
+/// Many-to-many AdminUser ↔ Role (SRS §28.2: AdminUser.roleIds[], §8:
+/// "an account may hold more than one role, and the effective
+/// permission set is the union").
+model AdminUserRole {
+  adminUserId String
+  roleId      String
+  assignedAt  DateTime @default(now())
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  role      Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([adminUserId, roleId])
+  @@index([roleId])
+}
+
+/// Many-to-many Role ↔ Permission (SRS §28.2: Role.permissionIds[]).
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+/// Server-side session record (SRS §30: "session invalidation on
+/// role/permission change" — trivial here, delete/flag the row; a JWT
+/// could not do this without a separate revocation list, which is why
+/// Phase 1 uses database-backed sessions rather than the Credentials
+/// provider + JWT combination a library like Auth.js would otherwise
+/// force — see the Phase 1 report's Conflict Handling section for the
+/// full reasoning). Only a hash of the session token is stored; the raw
+/// token exists only in the client's HttpOnly cookie and is never
+/// persisted, so a database read alone cannot impersonate a session.
+model Session {
+  id                  String    @id @default(cuid())
+  tokenHash           String    @unique
+  adminUserId         String
+  createdAt           DateTime  @default(now())
+  /// Rolling inactivity timestamp — compared against a 30-minute window
+  /// on every authenticated request (SRS §30). Absolute expiresAt exists
+  /// too, as a hard ceiling independent of activity.
+  lastActivityAt      DateTime  @default(now())
+  expiresAt           DateTime
+  /// Set when a sensitive action (Section lib/auth/session.ts) was
+  /// re-verified in this session — SRS §23: "sensitive-action
+  /// re-authentication... even within an active session."
+  sensitiveVerifiedAt DateTime?
+  ipAddress           String?
+  userAgent           String?   @db.Text
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+/// A short-lived, single-use record bridging "password verified" and
+/// "session issued" for accounts that require MFA (SRS §30). Kept as its
+/// own table — not a signed client-side token — so a partially-
+/// authenticated state is server-revocable and auditable like everything
+/// else in this schema, consistent with the project's database-backed
+/// session model.
+model MfaChallenge {
+  id          String   @id @default(cuid())
+  tokenHash   String   @unique
+  adminUserId String
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+  ipAddress   String?
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+/// Bridges "Super Administrator created this account" to "the invited
+/// person set their own password and it became ACTIVE" (invitation-based
+/// onboarding). Same hashed-bearer-token shape as MfaChallenge/Session —
+/// the raw token only ever exists in the emailed link and the momentary
+/// HTTP response to the inviting admin, never at rest. Unlike
+/// MfaChallenge, the row is NOT deleted on the initial (unauthenticated)
+/// GET validation a browser does when the accept-invite page loads —
+/// only deleted/superseded once the POST that actually sets the password
+/// succeeds — otherwise merely opening the link (or a mail client's link
+/// preview crawler doing so) would burn a single-use token before the
+/// invited person ever got to type a password. `acceptedAt` is the
+/// system's record that the invitation was accepted (requirement: state
+/// must be recorded, not just inferred from AdminUser.status).
+model AdminUserInvitation {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  adminUserId String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+
+  adminUser AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Audit & Governance (SRS §25)
+// ---------------------------------------------------------------------------
+
+enum AuditResult {
+  SUCCESS
+  DENIED
+  ERROR
+}
+
+/// Immutable governance record (SRS §25). No update/delete path exists
+/// anywhere in the application code for this model — enforced by simply
+/// never writing one (lib/audit.ts exposes only a create function), which
+/// is the same "enforced by omission" pattern the SRS itself specifies
+/// for the Audit Log API ("no UI or API path exists to edit or delete
+/// an Audit Log record... this screen enforces append-only, read-only
+/// access at the API layer, not just the UI layer" — §25, SCR-051).
+model AuditLog {
+  id           String      @id @default(cuid())
+  /// Nullable: a failed-login attempt against a non-existent email has
+  /// no AdminUser to reference, but is still an auditable event (§25
+  /// lists "Failed login" explicitly).
+  actorId      String?
+  /// Denormalized alongside actorId so the log entry stays readable even
+  /// if the account is later deactivated, and so failed-login attempts
+  /// (no actorId) still show what was attempted.
+  actorEmail   String?
+  action       String
+  resourceType String?
+  resourceId   String?
+  before       Json?
+  after        Json?
+  result       AuditResult
+  ipAddress    String?
+  sessionId    String?
+  createdAt    DateTime    @default(now())
+
+  actor AdminUser? @relation("AuditLogActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([actorId])
+  @@index([action])
+  @@index([resourceType, resourceId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Leads (SRS §20.2, §28.2, §33.3) — Phase 1's vertical slice
+// ---------------------------------------------------------------------------
+
+enum LeadStatus {
+  NEW
+  ROUTED
+  SYNCED
+  SYNC_FAILED
+  ARCHIVED
+}
+
+/// The raw record of one website form submission (SRS §28.2). formId is
+/// a plain string ("contact", "demo", "trial", ...) matching the route
+/// identifiers System A's own form-handler services already use — not a
+/// foreign key into a Form table, since Form/FormField configuration is
+/// explicitly later-phase (Forms & Lead Management module).
+model Submission {
+  id          String   @id @default(cuid())
+  formId      String
+  payload     Json
+  utm         Json?
+  /// Hashed, not raw, per SRS §28.2's own field name ("ipHash") — a
+  /// privacy-conscious choice already made by the SRS itself, not one
+  /// this implementation is introducing.
+  ipHash      String?
+  submittedAt DateTime @default(now())
+
+  lead Lead?
+
+  @@index([formId])
+  @@index([submittedAt])
+}
+
+/// The CRM/routing-facing view of a Submission (SRS §28.1: "the
+/// CRM/routing-facing view of a Submission, carrying status/assignment/
+/// sync fields"). One-to-one with Submission.
+model Lead {
+  id              String     @id @default(cuid())
+  submissionId    String     @unique
+  status          LeadStatus @default(NEW)
+  source          String?
+  campaign        String?
+  assignedOwnerId String?
+  crmSyncStatus   String?
+  crmSyncedAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  submission    Submission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  assignedOwner AdminUser? @relation("LeadAssignedOwner", fields: [assignedOwnerId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([assignedOwnerId])
+}
+
+// ---------------------------------------------------------------------------
+// Global Website Settings (SRS §22, §28.2, FR-ADM-019)
+// ---------------------------------------------------------------------------
+
+/// One configuration value within one setting group (SRS §22's flat,
+/// scalar-valued groups — Identity & Branding, Contact Information,
+/// Social Links, Default SEO/OG, Analytics IDs, Cookie/Consent Category
+/// defaults + banner copy, Legal Links, Footer Settings, Localization
+/// Settings, Maintenance Mode). `value` is Json rather than String so a
+/// row can hold a scalar or a small fixed-shape value (e.g. the Cookie
+/// Category toggle list) without inventing a structure beyond the SRS's
+/// own flat `id, group, key, value` field list (§28.2). Global Banners —
+/// a genuinely dynamic, individually-created/deleted list of records
+/// with their own date ranges — is its own AnnouncementBanner table
+/// below instead, since forcing that into one JSON row per setting key
+/// would fight normal per-record create/delete/date-range querying.
+model SiteSetting {
+  id              String   @id @default(cuid())
+  group           String
+  key             String
+  value           Json
+  updatedByUserId String?
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  updatedBy AdminUser? @relation(fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([group, key])
+  @@index([group])
+}
+
+/// SRS §22 "Global Banners / Announcement Bars" — Message, link, active
+/// date range, dismissible flag, target zone. A dedicated table (not a
+/// SiteSetting JSON blob) because banners are individually created and
+/// deleted by admins and are naturally queried by active date range —
+/// exactly the access pattern a single-row-per-group config value isn't
+/// built for.
+model AnnouncementBanner {
+  id              String    @id @default(cuid())
+  message         String    @db.Text
+  link            String?   @db.Text
+  /// Null start/end means "active immediately" / "no expiry" respectively.
+  startDate       DateTime?
+  endDate         DateTime?
+  dismissible     Boolean   @default(true)
+  /// Free string, not an enum — matches the same extensibility reasoning
+  /// already applied to Permission.module/action (see that model's own
+  /// comment): the SRS doesn't enumerate a fixed zone list, and an enum
+  /// would need a migration every time a new zone is introduced.
+  targetZone      String    @default("sitewide")
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  createdBy AdminUser? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([startDate, endDate])
+}
+
+// ---------------------------------------------------------------------------
+// Content Management (SRS §13.1, §16, §28.2) — Pages, first content type
+// ---------------------------------------------------------------------------
+
+enum PageClassification {
+  STANDARD
+  PRICING
+  LEGAL
+  SECURITY
+}
+
+/// SRS §33.1's exact state shape: Draft → Submitted → In Review →
+/// {Changes Requested → Draft | Approved} → Scheduled → Published →
+/// Archived. One enum shared by every governed content type, per §14's
+/// "identical five/six-state machine across all governed content types
+/// ... with per-type variation only in *who* may self-publish, never in
+/// the state names themselves" — Page is the first type to use it, not
+/// the only one it's designed for.
+enum ContentStatus {
+  DRAFT
+  SUBMITTED
+  IN_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  SCHEDULED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum ApprovalDecision {
+  APPROVE
+  REQUEST_CHANGES
+}
+
+/// SRS §28.1/§28.2 Page — "mirrors the public Page concept; ordered
+/// PageVersion/PageSection history." `classification` drives which
+/// workflow gate applies (§13.1 vs §13.3): LEGAL/SECURITY pages require
+/// Approval from a holder of content:reviewLegal specifically (Legal &
+/// Compliance Reviewer), not just content:review — see the guard in
+/// src/lib/content/workflow.ts, not encoded here as a DB constraint,
+/// mirroring the mfaSecret/mfaRequired split already used on
+/// AdminUser/Role. `title` is a denormalized cache of the current
+/// version's title for the Pages list (SCR-002) — the full, versioned
+/// SEO title/description live in the not-yet-built SEORecord (§19,
+/// deferred until the SEO Management module itself is built).
+model Page {
+  id                String             @id @default(cuid())
+  slug              String             @unique
+  title             String             @db.Text
+  /// Free string, not an enum — matches the extensibility reasoning
+  /// already applied to Permission.module/action: the SRS's own template
+  /// examples (Home, Capability Page, Solutions Sub-Page, Landing Page)
+  /// are illustrative, not an exhaustive fixed catalog (§17).
+  templateType      String             @default("standard")
+  classification    PageClassification @default(STANDARD)
+  status            ContentStatus      @default(DRAFT)
+  currentVersionId  String?            @unique
+  /// Who most recently submitted this page for review — read by the
+  /// Approval Queue (SCR-019) and by the separation-of-duties guard
+  /// (§28.2's Approval note: "Distinct actor from submitter enforced at
+  /// the API layer"), cleared back to null once a review decision lands.
+  submittedByUserId String?
+  /// Most recent "Changes Requested" reviewer comment, shown to the
+  /// author back in Draft; cleared on the next Submit for Review.
+  reviewComment     String?            @db.Text
+  createdByUserId   String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  currentVersion PageVersion?  @relation("PageCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       PageVersion[] @relation("PageVersions")
+  createdBy      AdminUser?    @relation("PageCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?    @relation("PageSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([classification])
+}
+
+/// SRS §28.2 PageVersion — "an immutable snapshot of a Page at a point in
+/// publish history — enables Version History (SCR-017) and Rollback
+/// (FR-ADM-006)." A version is created on every Save Draft (so Draft
+/// edits are themselves snapshotted, not mutated destructively) and never
+/// updated after creation — editing always means creating the next
+/// versionNumber. `componentBlocks` holds the §28.2 ContentBlock fields
+/// (id, type, order, props) inline as a JSON array rather than a separate
+/// table: the same reasoning already used for AnnouncementBanner vs.
+/// SiteSetting applies in reverse here — an ordered list that is always
+/// loaded and mutated together with its one immutable-once-created parent
+/// has none of the independent-query needs a separate table exists for,
+/// and a JSON array avoids an `order`-column resync bug surface entirely.
+model PageVersion {
+  id                String    @id @default(cuid())
+  pageId            String
+  versionNumber     Int
+  title             String    @db.Text
+  componentBlocks   Json
+  createdByUserId   String?
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdAt         DateTime  @default(now())
+
+  page           Page       @relation("PageVersions", fields: [pageId], references: [id], onDelete: Cascade)
+  currentForPage Page?      @relation("PageCurrentVersion")
+  createdBy      AdminUser? @relation("PageVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy    AdminUser? @relation("PageVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([pageId, versionNumber])
+  @@index([pageId])
+}
+
+/// SRS §28.2 Approval — "a single Approve/Request-Changes decision on a
+/// workflow instance, recording actor and decision. Distinct actor from
+/// submitter enforced at the API layer." The SRS's generic `Workflow`
+/// entity (a configurable state-machine definition, §28.1) is not
+/// modeled as its own table yet — the state machine lives as code in
+/// src/lib/content/workflow.ts, which operates on primitive ContentStatus
+/// values and is already shared across every governed content type; no
+/// DB-driven Workflow table is needed for that. What WAS content-specific
+/// until now was this table's own shape: `resourceType`/`resourceId`
+/// replace the original `pageId` (generalized ahead of Pricing becoming
+/// the second governed content type, per the standing architecture note
+/// not to build a second, duplicated approval table). Unenforced by a DB
+/// foreign key — same pattern AuditLog already uses for its own
+/// resourceType/resourceId pair — since a real FK can't span multiple
+/// target tables.
+model Approval {
+  id           String           @id @default(cuid())
+  resourceType String
+  resourceId   String
+  actorId      String?
+  decision     ApprovalDecision
+  comment      String?          @db.Text
+  decidedAt    DateTime         @default(now())
+
+  actor AdminUser? @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+}
+
+/// SRS §28.2 ScheduledPublication — "a pending Scheduled → Published
+/// transition with its target datetime... drives Section 24's scheduler"
+/// (FR-ADM-004). `executedAt` is set by the scheduler run that actually
+/// flips the resource to Published; a null executedAt with a past
+/// scheduledFor means the scheduler hasn't run yet, not that it failed.
+/// Generalized to `resourceType`/`resourceId` alongside Approval, for the
+/// same reason (Pricing also has a Scheduled state, §15.2).
+model ScheduledPublication {
+  id              String    @id @default(cuid())
+  resourceType    String
+  resourceId      String
+  scheduledFor    DateTime
+  executedAt      DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+
+  createdBy AdminUser? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([resourceType, resourceId])
+  @@index([scheduledFor])
+}
+
+// ---------------------------------------------------------------------------
+// Media Library (SRS §18, §28.1/§28.2, FR-ADM-010/011)
+// ---------------------------------------------------------------------------
+
+/// SRS §18's Media Library entity. `altText` is a required (non-nullable)
+/// column, not an optional one with an API-layer check — matching §28.2's
+/// "altText... enforced by CMS validation, not left optional" as literally
+/// as the type system allows; a row simply cannot exist without one.
+/// `fileType`/`fileSize`/`width`/`height` are "auto-detected metadata"
+/// per §18's table — computed from the uploaded file at upload time, not
+/// editor-entered. `folder` and `tags` are §18's "Folders / Collections"
+/// and tag-based search, modeled as a free string and a JSON string array
+/// rather than their own tables — the same lightweight-taxonomy reasoning
+/// already applied to Permission.module/AnnouncementBanner.targetZone,
+/// since §28 gives Folders/Tags no dedicated entity of their own here
+/// (unlike Category/Tag in §28.1, which are Blog/FAQ/Customer-Story
+/// taxonomy, a distinct later-phase concern). `tags` is `Json` rather than
+/// a native array column — MySQL/Prisma has no array scalar type, so the
+/// same string list Postgres stored as `String[]` is stored as a JSON
+/// array here instead; filtered with Prisma's `array_contains` JSON
+/// operator (src/app/api/admin/media/route.ts) in place of the Postgres
+/// array `has` filter.
+///
+/// `responsiveDerivatives` exists as a column (matching §18's CDN
+/// References row and §28.2's `responsiveDerivatives[]` field) but is not
+/// populated by this increment — no image-resizing pipeline/CDN is
+/// provisioned yet, so it stays null rather than being fabricated; the
+/// single `url` is the real, working, served asset. This is a disclosed
+/// infrastructure gap, the same category as System A's own unconfigured
+/// storage/CRM BLOCKERs, not a feature omission.
+///
+/// "Usage Tracking" (§18, FR-ADM-011) and "Delete blocked while usage
+/// exists" are deliberately NOT columns here — they're computed by
+/// scanning governed content (currently just Page.currentVersion's
+/// componentBlocks JSON for a matching mediaAssetId) at request time, in
+/// src/lib/media/usage.ts, so the count is never stale relative to the
+/// content it's describing.
+model MediaAsset {
+  id                    String   @id @default(cuid())
+  /// Original uploaded filename, kept for display/search — distinct from
+  /// the on-disk/CDN storage key embedded in `url`.
+  filename              String   @db.Text
+  /// The served URL — local /uploads/{key} today (see
+  /// src/lib/media/storage.ts), swappable for a real object-storage/CDN
+  /// URL later behind that same module without this column changing
+  /// shape.
+  url                   String   @db.Text
+  altText               String   @db.Text
+  caption               String?  @db.Text
+  /// MIME type (e.g. "image/png", "video/mp4", "application/pdf") —
+  /// matches §18's "File Type... auto-detected."
+  fileType              String
+  /// Bytes.
+  fileSize              Int
+  /// Null for non-image/video files (documents, brand PDFs, etc.).
+  width                 Int?
+  height                Int?
+  folder                String?
+  /// JSON string array — see model-level comment above.
+  tags                  Json
+  responsiveDerivatives Json?
+  /// §18 "Archive Asset: removes from active selection in the Media
+  /// Picker without deleting the file" — distinct from a hard DELETE,
+  /// which §18 blocks outright while any usage reference exists.
+  archived              Boolean  @default(false)
+  uploadedByUserId      String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  uploadedBy                AdminUser?             @relation(fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  blogPostVersions          BlogPostVersion[]
+  resourceDownloads         Resource[]             @relation("ResourceDownloadFile")
+  customerStoryLogos        CustomerStory[]        @relation("CustomerStoryLogo")
+  customerStoryTestimonials CustomerStoryVersion[] @relation("CustomerStoryTestimonialPhoto")
+  webinarSpeakerPhotos      WebinarVersion[]       @relation("WebinarSpeakerPhoto")
+
+  @@index([archived])
+  @@index([fileType])
+  @@index([folder])
+}
+
+// ---------------------------------------------------------------------------
+// Pricing Management (SRS §3, §15, §28.1/§28.2) — second governed content
+// type, built on the resourceType/resourceId Approval/ScheduledPublication
+// shape (see that model's own comment). "Pricing Management as an
+// independent module with its own lifecycle, versioning, and audit trail"
+// (§3) — deliberately its own PricingPlan/PricingVersion pair, not a
+// Page.classification=PRICING row, matching that explicit instruction.
+// ---------------------------------------------------------------------------
+
+enum PricingVisibility {
+  PUBLIC
+  HIDDEN
+}
+
+/// SRS §15.1/§28.1 PricingPlan — the stable, locale-invariant plan
+/// identity (Starter/Growth/Enterprise). `slug` is the stable identifier
+/// System A's CTAs and any future direct linking depend on — never
+/// translated, unlike the version's display text. Workflow reuses the
+/// exact same ContentStatus state machine and src/lib/content/workflow.ts
+/// guards Page already uses (§13.2: "identical shape to Standard, distinct
+/// terminology retained") — no PricingStatus enum, no duplicated guards.
+model PricingPlan {
+  id                String            @id @default(cuid())
+  slug              String            @unique
+  visibility        PricingVisibility @default(PUBLIC)
+  featured          Boolean           @default(false)
+  recommended       Boolean           @default(false)
+  /// Display order on the public Pricing page (ascending).
+  order             Int               @default(0)
+  status            ContentStatus     @default(DRAFT)
+  currentVersionId  String?           @unique
+  submittedByUserId String?
+  reviewComment     String?           @db.Text
+  createdByUserId   String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  currentVersion PricingVersion?  @relation("PricingPlanCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       PricingVersion[] @relation("PricingPlanVersions")
+  createdBy      AdminUser?       @relation("PricingPlanCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?       @relation("PricingPlanSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  promotionLinks PromotionPlan[]
+
+  @@index([status])
+}
+
+/// SRS §15.1/§28.2 PricingVersion — immutable snapshot, exactly like
+/// PageVersion (never mutated once created; every edit is a new version).
+/// Numeric/structural fields (price, currency, trial length, CTA target,
+/// dates, feature values) are locale-invariant and stay top-level columns;
+/// display text that genuinely differs per locale (plan name, description,
+/// price suffix, feature-list copy, CTA label, badge) lives in
+/// `translations`, keyed "en"/"ar" — the same reasoning already used for
+/// PageVersion.componentBlocks/SiteSetting.value: a compound value that is
+/// always loaded and edited as one unit, not independently queried.
+/// Deliberately ONE governed version per locale pair rather than two
+/// separately-workflowed rows: a real pricing change is one reviewable
+/// business decision, and a single approval gate covering both locales'
+/// copy prevents English going live while Arabic is still pending a
+/// separate, uncoordinated review for the *same* price.
+model PricingVersion {
+  id                String    @id @default(cuid())
+  pricingPlanId     String
+  versionNumber     Int
+  /// Null on both monthlyPrice and annualPrice together represents a
+  /// deliberate "custom quote" plan (e.g. Enterprise) — SRS §32's "requires
+  /// Monthly Price, Annual Price" is read as "if priced at all," since the
+  /// Website SRS's own Enterprise tier has always shipped as contact-sales,
+  /// not two literal required numbers; enforced in the API layer (both
+  /// null, or both present — never just one).
+  monthlyPrice      Float?
+  annualPrice       Float?
+  currency          String    @default("USD")
+  trialPeriodDays   Int?
+  /// A relative System A path (e.g. "/trial", "/enterprise") — a route,
+  /// not display text, so it stays outside `translations` and is passed
+  /// through by the public API unchanged.
+  ctaTarget         String    @default("/trial")
+  effectiveDate     DateTime?
+  expirationDate    DateTime?
+  /// { en: { name, description, priceSuffix, featureList: string[], ctaLabel, badgeLabel? }, ar: {...} }
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  plan           PricingPlan             @relation("PricingPlanVersions", fields: [pricingPlanId], references: [id], onDelete: Cascade)
+  currentForPlan PricingPlan?            @relation("PricingPlanCurrentVersion")
+  createdBy      AdminUser?              @relation("PricingVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy    AdminUser?              @relation("PricingVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  features       PricingVersionFeature[]
+
+  @@unique([pricingPlanId, versionNumber])
+  @@index([pricingPlanId])
+}
+
+/// SRS §15.1/§28.1 PricingFeature — the shared feature/limit taxonomy
+/// referenced by one or more PricingPlans (§28.1: "A feature/limit line
+/// item referenced by one or more PricingPlans"), matching the public
+/// Pricing page's comparison table rows. `key` is the stable identifier;
+/// `category`/`feature` display text is per-locale in `translations`,
+/// same reasoning as PricingVersion's own translations field.
+model PricingFeature {
+  id           String   @id @default(cuid())
+  key          String   @unique
+  /// { en: { category, feature }, ar: {...} }
+  translations Json
+  order        Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  versionLinks PricingVersionFeature[]
+}
+
+/// Join: one PricingVersion's value for one PricingFeature — this row IS
+/// a comparison-table cell (e.g. "true", "false", "Unlimited", "3").
+/// Free-string value rather than a typed column because the public
+/// pricing page's existing comparison rows already mix booleans and
+/// arbitrary text values per the ComparisonRow type in System A.
+model PricingVersionFeature {
+  pricingVersionId String
+  pricingFeatureId String
+  value            String @db.Text
+
+  version PricingVersion @relation(fields: [pricingVersionId], references: [id], onDelete: Cascade)
+  feature PricingFeature @relation(fields: [pricingFeatureId], references: [id], onDelete: Cascade)
+
+  @@id([pricingVersionId, pricingFeatureId])
+  @@index([pricingFeatureId])
+}
+
+/// SRS §15.1/§28.1 Promotion — a discount/promotion referenced by one or
+/// more PricingPlans. Not versioned/workflowed itself (§28.1 gives it no
+/// lifecycle of its own); its own start/end date window is its "is this
+/// live" signal, evaluated at public-read time.
+model Promotion {
+  id            String    @id @default(cuid())
+  /// { en: { name }, ar: {...} }
+  translations  Json
+  discountType  String    @default("PERCENTAGE")
+  discountValue Float
+  startDate     DateTime?
+  endDate       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  planLinks PromotionPlan[]
+}
+
+model PromotionPlan {
+  promotionId   String
+  pricingPlanId String
+
+  promotion Promotion   @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  plan      PricingPlan @relation(fields: [pricingPlanId], references: [id], onDelete: Cascade)
+
+  @@id([promotionId, pricingPlanId])
+  @@index([pricingPlanId])
+}
+
+// ---------------------------------------------------------------------------
+// Blog & Resources (SRS §16, §28.1/§28.2) — third/fourth governed content
+// types, built on the same resourceType/resourceId Approval/
+// ScheduledPublication shape and the shared ContentStatus state machine
+// Page and Pricing already use. §13.1's "Blog and Resources exception"
+// (Content Manager may self-publish, unlike Pricing/Legal/Security) needs no
+// schema change — it's a role/permission-grant fact (seed.ts), not a
+// workflow-guard fact; the same canPublishNow/canArchive/etc. guards apply
+// unchanged. Author/Category/Tag are §16/§28.1's shared taxonomy entities —
+// deliberately reusable across future content types, but only actually
+// linked to BlogPost today (Resources has no taxonomy per §16's own field
+// list, which gives it only a gating flag).
+// ---------------------------------------------------------------------------
+
+/// SRS §28.1 Author — shared taxonomy, a byline identity (e.g. "Product
+/// Marketing Team"), distinct from AdminUser: a byline is public-facing
+/// editorial identity, not a login. name/role/bio are per-locale display
+/// text, matching System A's existing authors.ts + messages/*.json split.
+model Author {
+  id           String   @id @default(cuid())
+  /// { en: { name, role, bio }, ar: {...} }
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  posts BlogPost[]
+}
+
+/// SRS §16/§28.1 Category — shared taxonomy across Blog/FAQ/Customer
+/// Stories/Landing Pages (§16); only Blog exists today, so only BlogPost
+/// links to it, but the entity itself is intentionally general per the
+/// SRS's own "managed centrally in the Taxonomy Manager" framing.
+model Category {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  /// { en: { name }, ar: {...} }
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  postLinks BlogPostVersionCategory[]
+}
+
+/// SRS §16/§28.1 Tag — shared taxonomy, same reasoning as Category.
+model Tag {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  /// { en: { name }, ar: {...} }
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  postLinks BlogPostVersionTag[]
+}
+
+/// SRS §16/§28.1 BlogPost — the stable, locale-invariant post identity,
+/// mirroring PricingPlan's split: slug/author/status/featured are plan-level
+/// facts that don't need re-review to change; title/excerpt/body/category/
+/// tags are the actual editorial content and live on BlogPostVersion,
+/// re-reviewed on every edit exactly like PricingVersion's translations.
+model BlogPost {
+  id                String        @id @default(cuid())
+  slug              String        @unique
+  authorId          String?
+  featured          Boolean       @default(false)
+  status            ContentStatus @default(DRAFT)
+  currentVersionId  String?       @unique
+  submittedByUserId String?
+  reviewComment     String?       @db.Text
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  author         Author?           @relation(fields: [authorId], references: [id], onDelete: SetNull)
+  currentVersion BlogPostVersion?  @relation("BlogPostCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       BlogPostVersion[] @relation("BlogPostVersions")
+  createdBy      AdminUser?        @relation("BlogPostCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?        @relation("BlogPostSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+/// SRS §28.2 BlogPostVersion — immutable snapshot, same pattern as
+/// PricingVersion. `publishedDate` is the editorial "posted on" date shown
+/// to readers (distinct from `publishedAt`, the workflow-publish timestamp);
+/// authors may backdate/schedule this independent of when the Publish
+/// action actually runs. `body` is per-locale structured ArticleBlock[]
+/// JSON inside `translations`, matching §16's "rich-text fields within a
+/// component" carve-out (contained/sanitized, not freeform page HTML).
+/// `relatedPostSlugs` is editorially curated per §28.2, not auto-generated.
+/// Stored as `Json` (a JSON string array), not a native array column — see
+/// MediaAsset.tags' comment for why; read sites treat it as `string[]` via
+/// an explicit cast (it is always written as one by this application).
+model BlogPostVersion {
+  id                String    @id @default(cuid())
+  blogPostId        String
+  versionNumber     Int
+  publishedDate     DateTime?
+  updatedDate       DateTime?
+  heroImageId       String?
+  relatedPostSlugs  Json
+  /// { en: { title, excerpt, seoTitle, seoDescription, body: ArticleBlock[] }, ar: {...} }
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  post           BlogPost                  @relation("BlogPostVersions", fields: [blogPostId], references: [id], onDelete: Cascade)
+  currentForPost BlogPost?                 @relation("BlogPostCurrentVersion")
+  heroImage      MediaAsset?               @relation(fields: [heroImageId], references: [id], onDelete: SetNull)
+  createdBy      AdminUser?                @relation("BlogPostVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy    AdminUser?                @relation("BlogPostVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+  categories     BlogPostVersionCategory[]
+  tags           BlogPostVersionTag[]
+
+  @@unique([blogPostId, versionNumber])
+  @@index([blogPostId])
+}
+
+model BlogPostVersionCategory {
+  blogPostVersionId String
+  categoryId        String
+
+  version  BlogPostVersion @relation(fields: [blogPostVersionId], references: [id], onDelete: Cascade)
+  category Category        @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([blogPostVersionId, categoryId])
+  @@index([categoryId])
+}
+
+model BlogPostVersionTag {
+  blogPostVersionId String
+  tagId             String
+
+  version BlogPostVersion @relation(fields: [blogPostVersionId], references: [id], onDelete: Cascade)
+  tag     Tag             @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([blogPostVersionId, tagId])
+  @@index([tagId])
+}
+
+/// SRS §16 Resources ("guides, templates, whitepapers") — Knowledge Center
+/// IA update (see CustomerStory/Webinar models below): Webinar was split
+/// out into its own model with genuinely type-appropriate fields (speaker,
+/// schedule, duration, video) rather than staying a `resourceFormat` value
+/// here, so this model now covers Guide/Template/Whitepaper only —
+/// downloadable-asset content, not scheduled/recorded events.
+enum ResourceFormat {
+  GUIDE
+  TEMPLATE
+  WHITEPAPER
+  CHECKLIST
+  PLAYBOOK
+}
+
+model Resource {
+  id                String         @id @default(cuid())
+  slug              String         @unique
+  resourceFormat    ResourceFormat
+  /// §16 / Knowledge Center §8.6: "not all content auto-gated — the
+  /// decision must be admin-controlled per asset." Editable in the admin
+  /// create/edit UI; the website's lead-capture form only renders when
+  /// this is true.
+  gated             Boolean        @default(true)
+  /// The downloadable asset itself (PDF/DOCX/XLSX/PPTX/ZIP per Knowledge
+  /// Center §8.5) — a real Media Library reference, not a bare URL, so it
+  /// gets the same usage-tracking/replace-file handling as any other
+  /// managed file.
+  downloadFileId    String?
+  status            ContentStatus  @default(DRAFT)
+  currentVersionId  String?        @unique
+  submittedByUserId String?
+  reviewComment     String?        @db.Text
+  createdByUserId   String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  currentVersion ResourceVersion?  @relation("ResourceCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       ResourceVersion[] @relation("ResourceVersions")
+  createdBy      AdminUser?        @relation("ResourceCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?        @relation("ResourceSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  downloadFile   MediaAsset?       @relation("ResourceDownloadFile", fields: [downloadFileId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([resourceFormat])
+}
+
+/// SRS §28.2 ResourceVersion — immutable snapshot, same pattern as
+/// PricingVersion/BlogPostVersion.
+model ResourceVersion {
+  id                String    @id @default(cuid())
+  resourceId        String
+  versionNumber     Int
+  /// { en: { title, description }, ar: {...} }
+  translations      Json
+  /// Knowledge Center §7 Content Page fields — locale-invariant facts, same
+  /// split as every other versioned model's flat-vs-translations columns.
+  category          String?
+  targetAudience    String?
+  /// "when needed" per spec — most Templates/Checklists skip it.
+  difficultyLevel   String?
+  /// Slugs of other Resources shown as this one's "Related Content".
+  relatedResourceSlugs Json  @default("[]")
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  resource           Resource   @relation("ResourceVersions", fields: [resourceId], references: [id], onDelete: Cascade)
+  currentForResource Resource?  @relation("ResourceCurrentVersion")
+  createdBy          AdminUser? @relation("ResourceVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy        AdminUser? @relation("ResourceVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([resourceId, versionNumber])
+  @@index([resourceId])
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge Center — Customer Stories & Webinars (Knowledge Center IA spec
+// §7, §9, §19, §23). Grouped by that spec as "Marketing / Knowledge
+// Content" alongside Blog/Resources, so both get the same full governed
+// workflow (Draft → Submit → Review → Approve → Publish → Archive) those
+// already use — unlike Documentation/API Reference below, which the same
+// spec (§23) explicitly separates out as "Technical / Developer Content"
+// with no review-workflow fields listed for either.
+// ---------------------------------------------------------------------------
+
+/// Knowledge Center §7.4/§19 CustomerStory — the stable, locale-invariant
+/// identity (customer facts, industry, company size — the things that
+/// don't need re-review to change), mirroring BlogPost/PricingPlan's own
+/// split. The narrative (Challenge/Solution/Results/testimonial copy) is
+/// the actual editorial content and lives on CustomerStoryVersion,
+/// re-reviewed on every edit exactly like BlogPostVersion.translations.
+model CustomerStory {
+  id                String        @id @default(cuid())
+  slug              String        @unique
+  customerName      String
+  customerLogoId    String?
+  industry          String
+  companySize       String?
+  country           String?
+  featured          Boolean       @default(false)
+  status            ContentStatus @default(DRAFT)
+  currentVersionId  String?       @unique
+  submittedByUserId String?
+  reviewComment     String?       @db.Text
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  customerLogo   MediaAsset?            @relation("CustomerStoryLogo", fields: [customerLogoId], references: [id], onDelete: SetNull)
+  currentVersion CustomerStoryVersion?  @relation("CustomerStoryCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       CustomerStoryVersion[] @relation("CustomerStoryVersions")
+  createdBy      AdminUser?             @relation("CustomerStoryCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?             @relation("CustomerStorySubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([industry])
+}
+
+/// Knowledge Center §7.4 CustomerStoryVersion — immutable snapshot, same
+/// pattern as every other governed content type's *Version model.
+/// `relatedCapabilitySlugs` links to Platform capability pages (§7.4
+/// "Related Capabilities") — a JSON string array, same MySQL-array
+/// convention as BlogPostVersion.relatedPostSlugs (see that field's own
+/// schema comment for why this isn't a native array column).
+/// `metrics`/testimonial copy live inside `translations` since KPI labels
+/// and the quote itself are display text, not locale-invariant facts —
+/// only the testimonial's proper nouns (name/title/company) and photo
+/// stay flat, matching how every other *Version model splits locale-
+/// invariant facts from display text.
+model CustomerStoryVersion {
+  id                     String    @id @default(cuid())
+  customerStoryId        String
+  versionNumber          Int
+  testimonialName        String?
+  testimonialTitle       String?
+  testimonialCompany     String?
+  testimonialPhotoId     String?
+  relatedCapabilitySlugs Json
+  /// { en: { challenge, solution, results, metrics: {label,value}[], testimonialQuote, seoTitle, seoDescription }, ar: {...} }
+  translations           Json
+  publishedAt            DateTime?
+  publishedByUserId      String?
+  createdByUserId        String?
+  createdAt              DateTime  @default(now())
+
+  story            CustomerStory  @relation("CustomerStoryVersions", fields: [customerStoryId], references: [id], onDelete: Cascade)
+  currentForStory  CustomerStory? @relation("CustomerStoryCurrentVersion")
+  testimonialPhoto MediaAsset?    @relation("CustomerStoryTestimonialPhoto", fields: [testimonialPhotoId], references: [id], onDelete: SetNull)
+  createdBy        AdminUser?     @relation("CustomerStoryVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy      AdminUser?     @relation("CustomerStoryVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([customerStoryId, versionNumber])
+  @@index([customerStoryId])
+}
+
+/// Knowledge Center §9/§19 Webinar — split out from Resource (see that
+/// model's own comment) precisely because it needs real, type-appropriate
+/// fields a downloadable Guide/Template never does. `gated` here follows
+/// the exact same admin-controlled-per-asset semantics as Resource.gated
+/// — "Registration" (§9.6) reuses the existing Lead-capture pipeline
+/// (routeLead → this API's leads ingest) rather than a separate signup
+/// system, so attending a gated webinar and downloading a gated guide are
+/// the same underlying mechanism, not two implementations of the same
+/// idea.
+model Webinar {
+  id                String        @id @default(cuid())
+  slug              String        @unique
+  gated             Boolean       @default(true)
+  featured          Boolean       @default(false)
+  status            ContentStatus @default(DRAFT)
+  currentVersionId  String?       @unique
+  submittedByUserId String?
+  reviewComment     String?       @db.Text
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  currentVersion WebinarVersion?  @relation("WebinarCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       WebinarVersion[] @relation("WebinarVersions")
+  createdBy      AdminUser?       @relation("WebinarCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?       @relation("WebinarSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+}
+
+/// Knowledge Center §9.5-9.7 WebinarVersion — immutable snapshot.
+/// `scheduledAt`/`durationMinutes`/`isOnDemand`/`videoUrl` live here
+/// (versioned, not on Webinar) because they're editorial facts about a
+/// specific version of the webinar's content, exactly like
+/// PricingVersion keeps `effectiveDate` versioned rather than on
+/// PricingPlan. A null `scheduledAt` with `isOnDemand=false` means the
+/// webinar hasn't been scheduled yet; flipping `isOnDemand` to true once
+/// a recording exists is what moves it from "Upcoming" to "On-Demand"
+/// (§9.3) — no separate status field needed, the website derives the
+/// section from these two columns plus whether `scheduledAt` is in the
+/// past. Speaker name/title/company are locale-varying display text
+/// (job titles translate) and live inside `translations`, matching how
+/// ResourceVersion already handled the equivalent field for the old
+/// WEBINAR resourceFormat — only the photo is flat.
+model WebinarVersion {
+  id                String    @id @default(cuid())
+  webinarId         String
+  versionNumber     Int
+  scheduledAt       DateTime?
+  durationMinutes   Int?
+  isOnDemand        Boolean   @default(false)
+  videoUrl          String?   @db.Text
+  /// Knowledge Center §8 Index Category Filter — free-text taxonomy, same
+  /// pattern as ResourceVersion.category.
+  category          String?
+  speakerPhotoId    String?
+  /// { en: { title, description, speakerName, speakerTitle, speakerCompany, agenda?, whatYouWillLearn?, keyTakeaways?, seoTitle, seoDescription }, ar: {...} }
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  webinar           Webinar     @relation("WebinarVersions", fields: [webinarId], references: [id], onDelete: Cascade)
+  currentForWebinar Webinar?    @relation("WebinarCurrentVersion")
+  speakerPhoto      MediaAsset? @relation("WebinarSpeakerPhoto", fields: [speakerPhotoId], references: [id], onDelete: SetNull)
+  createdBy         AdminUser?  @relation("WebinarVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy       AdminUser?  @relation("WebinarVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([webinarId, versionNumber])
+  @@index([webinarId])
+}
+
+// ---------------------------------------------------------------------------
+// Careers (SRS §16 "Careers override layer", FR-ADM-029) — the SRS frames
+// this as ATS-sync visibility + manual override (no ATS integration exists
+// anywhere in this project), not a sixth governed content type. In practice
+// System A's own jobListings.ts is already the literal stand-in "until
+// [ATS] integration is connected," so the override layer's only real
+// consumer today is that same static list — modeling JobListing as a
+// governed content type (identical split-entity pattern to Resource) makes
+// System B genuinely replace that hardcoded stand-in, exactly like every
+// other module in this project already did for its own hardcoded System A
+// content. This is a deliberate, disclosed extension past FR-ADM-029's
+// literal "override layer" framing, not a misreading of it: there is no
+// ATS to override yet, so the override IS the source of truth for now.
+// ---------------------------------------------------------------------------
+
+/// SRS §16/FR-ADM-029 JobListing — stable identity, mirrors Resource/BlogPost.
+model JobListing {
+  id                String        @id @default(cuid())
+  slug              String        @unique
+  status            ContentStatus @default(DRAFT)
+  currentVersionId  String?       @unique
+  submittedByUserId String?
+  reviewComment     String?       @db.Text
+  createdByUserId   String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  currentVersion JobListingVersion?  @relation("JobListingCurrentVersion", fields: [currentVersionId], references: [id], onDelete: SetNull)
+  versions       JobListingVersion[] @relation("JobListingVersions")
+  createdBy      AdminUser?          @relation("JobListingCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  submittedBy    AdminUser?          @relation("JobListingSubmittedBy", fields: [submittedByUserId], references: [id], onDelete: SetNull)
+  applications   JobApplication[]
+
+  @@index([status])
+}
+
+/// SRS §28.2-pattern JobListingVersion — immutable snapshot, same as every
+/// other governed content type. `team`/`location`/`employmentType` live
+/// inside `translations` alongside title/description/lists because System
+/// A's own messages/*.json already translates them per locale (e.g.
+/// "Full-time" → "دوام كامل") — they are display text, not locale-invariant
+/// facts, the same reasoning ResourceVersion.translations documents for
+/// `speaker`. `datePosted` stays a flat column: it's the one genuinely
+/// locale-invariant, structural fact (an ISO date), matching how
+/// PricingVersion keeps `effectiveDate` outside `translations`.
+model JobListingVersion {
+  id                String    @id @default(cuid())
+  jobListingId      String
+  versionNumber     Int
+  datePosted        DateTime?
+  /// { en: { title, team, location, employmentType, description, responsibilities: string[], qualifications: string[], preferredSkills: string[] }, ar: {...} }
+  translations      Json
+  publishedAt       DateTime?
+  publishedByUserId String?
+  createdByUserId   String?
+  createdAt         DateTime  @default(now())
+
+  jobListing        JobListing  @relation("JobListingVersions", fields: [jobListingId], references: [id], onDelete: Cascade)
+  currentForListing JobListing? @relation("JobListingCurrentVersion")
+  createdBy         AdminUser?  @relation("JobListingVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  publishedBy       AdminUser?  @relation("JobListingVersionPublishedBy", fields: [publishedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([jobListingId, versionNumber])
+  @@index([jobListingId])
+}
+
+/// Career Application (SRS §20.1 Career Application form), given a real
+/// relation to JobListing rather than the arbitrary-string `campaign`
+/// field the generic Submission/Lead pipeline used previously — jobs get
+/// edited, unpublished, and (soft-)deleted, and an application must stay
+/// correctly attributed to "the job it was actually submitted for" through
+/// all of that. `jobListingId` is nullable with onDelete: SetNull, not
+/// Cascade: deleting a JobListing must never destroy submitted candidate
+/// data (see the Careers DELETE route's own comment on why a
+/// once-published listing is archived, never hard-deleted, which in
+/// practice means this FK rarely if ever actually goes null — the
+/// nullability is a safety net, not the normal path). `jobTitleSnapshot`
+/// preserves what the applicant applied for even in that edge case, or if
+/// the listing's title is later edited.
+model JobApplication {
+  id               String   @id @default(cuid())
+  jobListingId     String?
+  jobTitleSnapshot String   @db.Text
+  fullName         String
+  email            String
+  portfolioUrl     String?  @db.Text
+  gender           String?
+  veteranStatus    String?
+  /// Despite the field name (kept as-is to avoid a migration + existing-row
+  /// backfill), this is NOT a public URL — it's the opaque private
+  /// storageKey from src/lib/media/storage.ts's savePrivateFile, which
+  /// writes resumes to private-uploads/ (outside public/), never
+  /// public/uploads. The only way to read the file back is the
+  /// authenticated GET /api/admin/careers/applications/[id]/resume route,
+  /// which resolves this value itself from the row — a client can never
+  /// supply or influence it directly.
+  resumeUrl        String   @db.Text
+  resumeFilename   String   @db.Text
+  resumeFileType   String
+  resumeFileSize   Int
+  ipHash           String?
+  submittedAt      DateTime @default(now())
+
+  jobListing JobListing? @relation(fields: [jobListingId], references: [id], onDelete: SetNull)
+
+  @@index([jobListingId])
+  @@index([submittedAt])
+}
+
+// ---------------------------------------------------------------------------
+// Chatbot Dashboard integration — a first-party live-chat channel additional
+// to the existing Tawk.to embed on zynreach-website (that embed is
+// unmodified and keeps working exactly as before). A visitor's browser
+// holds a random, unauthenticated conversation token (visitorToken) in
+// localStorage — the same "no account required" model every other
+// lead-capture form on the site already uses — which both identifies the
+// conversation across polls and is the only thing zynreach-website ever
+// sends back to us to fetch/append messages, matching the Submission/Lead
+// ingest pattern's service-token-only trust boundary.
+
+enum ChatConversationStatus {
+  OPEN
+  CLOSED
+}
+
+model ChatConversation {
+  id            String                 @id @default(cuid())
+  visitorToken  String                 @unique
+  status        ChatConversationStatus @default(OPEN)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+  /// Denormalized alongside `messages` so the Dashboard inbox can sort/
+  /// filter "most recently active" conversations with a single indexed
+  /// column instead of an aggregate query across every ChatMessage row.
+  lastMessageAt DateTime               @default(now())
+
+  messages ChatMessage[]
+
+  @@index([status, lastMessageAt])
+}
+
+enum ChatMessageSender {
+  VISITOR
+  AGENT
+}
+
+/// `agentUserId` is set only on AGENT messages (who replied) and is
+/// nullable + SetNull on delete — same "preserve the record, drop the
+/// dangling reference" pattern as JobApplication.jobListingId and
+/// Lead.assignedOwnerId — so a later AdminUser removal never deletes chat
+/// history.
+model ChatMessage {
+  id             String            @id @default(cuid())
+  conversationId String
+  sender         ChatMessageSender
+  body           String            @db.Text
+  agentUserId    String?
+  createdAt      DateTime          @default(now())
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  agentUser    AdminUser?       @relation("ChatMessageAgent", fields: [agentUserId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+}
+
+// ---------------------------------------------------------------------------
+// Developers — Documentation & API Reference (Knowledge Center IA spec
+// §12-§13, §19, §23). §23 explicitly separates this "Technical / Developer
+// Content" from the Marketing/Knowledge types above, and neither model's
+// CMS field list (§19) mentions a review workflow — deliberately simpler
+// than Blog/CustomerStory/Webinar: a direct-edit ContentStatus (Draft/
+// Published/Archived) for basic visibility control, no submit/approve/
+// schedule machinery, matching what was actually asked for rather than
+// copying the heavier pattern by default. Replaces the static docs.ts/
+// api-reference.ts content files in zynreach-website with real CMS data.
+// ---------------------------------------------------------------------------
+
+/// Knowledge Center §12.3 Documentation category — shared taxonomy for
+/// grouping DocArticles (e.g. "Getting Started", "Platform Guides",
+/// "Administration"), same lightweight-taxonomy shape as Category/Tag.
+model DocCategory {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  order        Int      @default(0)
+  /// { en: { name }, ar: {...} }
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  articles DocArticle[]
+}
+
+/// Knowledge Center §12.3/§19 DocArticle — Title/Slug/Category/Parent
+/// Page/Content/Order/Version/Last Updated/Related Articles, exactly per
+/// spec. `parentArticleId` is a self-relation giving the "Persistent Left
+/// Navigation" (§12.4) its hierarchy. `relatedArticleSlugs` is a JSON
+/// string array — same MySQL-array convention as
+/// BlogPostVersion.relatedPostSlugs (no native array scalar type on
+/// MySQL/Prisma; see that field's schema comment).
+model DocArticle {
+  id                  String        @id @default(cuid())
+  slug                String        @unique
+  categoryId          String?
+  parentArticleId     String?
+  order               Int           @default(0)
+  version             String        @default("1.0")
+  status              ContentStatus @default(DRAFT)
+  relatedArticleSlugs Json
+  /// { en: { title, content: ArticleBlock[], seoTitle, seoDescription }, ar: {...} }
+  translations        Json
+  createdByUserId     String?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  category      DocCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  parentArticle DocArticle?  @relation("DocArticleHierarchy", fields: [parentArticleId], references: [id], onDelete: SetNull)
+  childArticles DocArticle[] @relation("DocArticleHierarchy")
+  createdBy     AdminUser?   @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([categoryId])
+  @@index([parentArticleId])
+}
+
+/// Knowledge Center §13.3 API resource group — groups ApiEndpoints by
+/// Resource (Organizations, Users, Contacts, ...), same taxonomy shape as
+/// DocCategory.
+model ApiResourceGroup {
+  id           String   @id @default(cuid())
+  slug         String   @unique
+  order        Int      @default(0)
+  /// { en: { name, description }, ar: {...} }
+  translations Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  endpoints ApiEndpoint[]
+}
+
+enum HttpMethod {
+  GET
+  POST
+  PUT
+  PATCH
+  DELETE
+}
+
+/// Knowledge Center §13.3/§13.4/§19 ApiEndpoint — one row per documented
+/// endpoint, explicitly NOT treated as a Blog/Documentation-style article
+/// (§13.2: "must not be treated as a Blog or Documentation Article").
+/// Parameters/schemas/examples are locale-varying prose (descriptions,
+/// example commentary) so they live inside `translations`; the
+/// structural facts (method, path, auth requirement, version) are flat
+/// columns.
+model ApiEndpoint {
+  id              String        @id @default(cuid())
+  slug            String        @unique
+  resourceGroupId String?
+  method          HttpMethod
+  path            String
+  authRequired    Boolean       @default(true)
+  version         String        @default("v1")
+  order           Int           @default(0)
+  status          ContentStatus @default(DRAFT)
+  /// { en: { description, pathParameters, queryParameters, requestHeaders, requestBodySchema, responseSchema, statusCodes, errorResponses, requestExample, responseExample }, ar: {...} }
+  translations    Json
+  createdByUserId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  resourceGroup ApiResourceGroup? @relation(fields: [resourceGroupId], references: [id], onDelete: SetNull)
+  createdBy     AdminUser?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([resourceGroupId])
+  @@index([method])
+}
+
+/// CMS General §"Redirects" — admin-managed URL redirects for the public
+/// website, read by the website's proxy.ts on every request (same cached,
+/// fail-open pattern already used there for Maintenance Mode). Direct-edit,
+/// no draft/publish workflow — a redirect rule is either active or not,
+/// same as Site Settings. `from`/`to` are locale-agnostic path segments
+/// (e.g. "/old-page", "/new-page") — the website prefixes both with the
+/// current locale before comparing/redirecting, matching how every other
+/// redirect in next.config.ts already works.
+model Redirect {
+  id              String   @id @default(cuid())
+  from            String   @unique
+  to              String
+  permanent       Boolean  @default(true)
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  createdBy AdminUser? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+}
+
+/// Knowledge Center FAQ entry — CMS Navigation/Footer/FAQ Management pass.
+/// Same simple direct-edit-with-status tier as DocArticle/ApiEndpoint: no
+/// submit/requestChanges/approve/schedule/rollback workflow, no separate
+/// Version table — the admin picks the live status on every save and it
+/// takes effect immediately. `category` is free-text taxonomy, same
+/// pattern as ResourceVersion.category/WebinarVersion.category (a small,
+/// fixed set the website already renders as tabs — Product/Pricing/
+/// Security/Support), not a full relational taxonomy like DocCategory —
+/// disproportionate for four categories and ~11 items.
+model FaqItem {
+  id              String        @id @default(cuid())
+  category        String
+  order           Int           @default(0)
+  status          ContentStatus @default(DRAFT)
+  /// { en: { question, answer }, ar: { question, answer } }
+  translations    Json
+  createdByUserId String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  createdBy AdminUser? @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([category])
+  @@index([status])
+}

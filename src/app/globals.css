@@ -1,0 +1,275 @@
+@import "tailwindcss";
+
+/*
+ * Dark mode uses a manual attribute selector (data-theme, set by
+ * ThemeProvider/the beforeInteractive init script), not the OS-only
+ * prefers-color-scheme media query — same approach as zynreach-website,
+ * so an explicit in-app toggle can override the OS setting.
+ */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/**
+ * RTL/LTR is driven by the `dir` attribute on <html> (set from the
+ * active locale in the root layout), not a class toggle — every spacing/
+ * alignment utility used throughout this app must be a logical property
+ * (ms-/me-/ps-/pe-, text-start/text-end) rather than a physical one
+ * (ml-/mr-/pl-/pr-, text-left/text-right), so the exact same component
+ * tree renders correctly mirrored for Arabic with zero per-locale
+ * branching — this is the "component architecture that does not require
+ * major refactoring when Arabic content is introduced" the project
+ * directive asks for, established from the first component onward.
+ */
+
+/*
+ * Warm off-white / deep-charcoal design-token system, specified directly
+ * from the project's Light & Dark Mode color spec (exact hex values, not
+ * approximated) so the whole Dashboard reads as one consistent system
+ * rather than per-page-invented shades. Every token here has a light-mode
+ * definition below and a dark-mode override in the html[data-theme="dark"]
+ * block further down — nothing is theme-fixed except --color-error/-success
+ * (unchanged, spec doesn't redefine semantic status colors) and --radius-*.
+ */
+@theme {
+  --font-sans: var(--font-inter);
+  --font-serif: var(--font-playfair);
+
+  --color-neutral-50: #faf9f6;
+  --color-neutral-100: #f7f5f0;
+  --color-neutral-200: #e8e3d9;
+  --color-neutral-300: #d9d2c4;
+  --color-neutral-400: #b0a99c;
+  --color-neutral-500: #8a8a8a;
+  --color-neutral-600: #666666;
+  --color-neutral-700: #4d4d4d;
+  --color-neutral-800: #2e2e2e;
+  --color-neutral-900: #171717;
+
+  --color-primary-50: #fcf7ea;
+  --color-primary-100: #f8efd9;
+  --color-primary-200: #efdbaf;
+  --color-primary-300: #e5c46a;
+  --color-primary-400: #d9ae45;
+  --color-primary-500: #cfa130;
+  --color-primary-600: #c99522;
+  --color-primary-700: #a87812;
+  --color-primary-800: #8b6410;
+  --color-primary-900: #6d4f0d;
+
+  --color-error: #dc2626;
+  --color-error-bg: #fef2f2;
+  --color-success: #15803d;
+  --color-success-bg: #f0fdf4;
+
+  /*
+   * Card/panel surfaces, distinct from --color-neutral-* so a card can
+   * read as its own raised layer above the page background rather than
+   * blending into it — --color-surface for primary cards/tables/modals,
+   * --color-surface-alt for a slightly recessed secondary panel within a
+   * card (e.g. a nested summary block). Swapping the widespread literal
+   * `bg-white` for `bg-surface` shifts zero light-mode pixels while making
+   * dark mode correct.
+   */
+  --color-surface: #ffffff;
+  --color-surface-alt: #fcfbf8;
+
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+
+  --shadow-card: 0 15px 40px rgba(0, 0, 0, 0.05);
+  --shadow-card-hover: 0 20px 50px rgba(0, 0, 0, 0.08);
+
+  /*
+   * Sidebar chrome is now theme-responsive (white in light, deep charcoal
+   * in dark — see the html[data-theme="dark"] override below), not the
+   * fixed gold-brown panel from the previous pass. Kept as its own
+   * dedicated token family, not aliased to the neutral or surface tokens
+   * above, because the sidebar's active-item treatment (accent, accent
+   * background, accent border) has no equivalent elsewhere in the app.
+   */
+  --color-sidebar-bg: #ffffff;
+  --color-sidebar-border: #e8e3d9;
+  --color-sidebar-hover: #f7f5f0;
+  --color-sidebar-text: #171717;
+  --color-sidebar-text-muted: #666666;
+  --color-sidebar-accent: #a87812;
+  --color-sidebar-accent-bg: #fbf1dc;
+  --color-sidebar-accent-border: #e7c36d;
+}
+
+:root {
+  --background: var(--color-neutral-50);
+  --foreground: var(--color-neutral-900);
+}
+
+/*
+ * Dark-mode token overrides. Every role above gets a matching definition
+ * here (including the sidebar, now theme-responsive) so no page or
+ * component is ever "stuck" showing a light-mode surface while the rest
+ * of the app is dark, or vice versa.
+ */
+html[data-theme="dark"] {
+  --color-primary-50: #170f05;
+  --color-primary-100: #3a2a0d;
+  --color-primary-200: #5c420f;
+  --color-primary-300: #7d5913;
+  --color-primary-400: #a87916;
+  --color-primary-500: #c2921f;
+  --color-primary-600: #d4a52c;
+  --color-primary-700: #e0b642;
+  --color-primary-800: #ebce7c;
+  --color-primary-900: #f5e4b3;
+
+  --color-neutral-50: #0d1018;
+  --color-neutral-100: #11141d;
+  --color-neutral-200: #292d38;
+  --color-neutral-300: #323744;
+  --color-neutral-400: #565b68;
+  --color-neutral-500: #858994;
+  --color-neutral-600: #b8bbc4;
+  --color-neutral-700: #d0d2d9;
+  --color-neutral-800: #e3e4e8;
+  --color-neutral-900: #f5f5f5;
+
+  --color-error: #f87171;
+  --color-error-bg: #2a1414;
+  --color-success: #4ade80;
+  --color-success-bg: #10241a;
+
+  --color-surface: #151821;
+  --color-surface-alt: #181b25;
+
+  --color-sidebar-bg: #11131c;
+  --color-sidebar-border: #292d38;
+  --color-sidebar-hover: #181b25;
+  --color-sidebar-text: #f5f5f5;
+  --color-sidebar-text-muted: #b8bbc4;
+  --color-sidebar-accent: #e0b642;
+  --color-sidebar-accent-bg: #3a2a0d;
+  --color-sidebar-accent-border: #765719;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04), 0 15px 40px rgba(0, 0, 0, 0.35);
+  --shadow-card-hover: 0 1px 0 rgba(255, 255, 255, 0.06), 0 20px 50px rgba(0, 0, 0, 0.45);
+
+  --background: var(--color-neutral-50);
+  --foreground: var(--color-neutral-900);
+}
+
+/* Arabic carries no Latin serif glyphs — fall back to the already-loaded
+   Noto Sans Arabic rather than tofu/system-serif for the (sparse, page-title-only) serif rule below. */
+html[lang="ar"] {
+  --font-serif: var(--font-noto-arabic);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-neutral-200);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+  }
+
+  /* Page-level titles only (h1) get the brand serif treatment, matching
+     the public site's editorial feel — h2/h3 stay Inter since this app
+     reuses them pervasively as small, dense in-card section labels where
+     a serif would read as noisy rather than premium. */
+  h1 {
+    font-family: var(--font-serif);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  /* Visible focus indicator, never removed. */
+  :focus-visible {
+    outline: 2px solid var(--color-primary-600);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  /* The Tiptap body editor's contenteditable is exempted from the generic
+     focus ring above: since that ring hugs only the editor's actual
+     content box (which can be a single short line), it renders as a small
+     ring around one line rather than the full writing surface — reading
+     as a cramped input box instead of an open canvas. The toolbar above it
+     already makes "you're editing this" obvious without a ring. */
+  .prose-editor .ProseMirror:focus-visible {
+    outline: none;
+  }
+
+  /* Fill the writing surface's full min-height even when the article is
+     short, so it reads as an open canvas rather than shrink-wrapping to
+     whatever little content currently exists. */
+  .prose-editor .ProseMirror {
+    min-height: 100%;
+  }
+
+  /*
+   * Real typographic hierarchy for the article body editor. Tailwind's
+   * preflight resets heading font-size/weight to `inherit` and strips list
+   * markers/margins, so without these rules H1/H2/H3 rendered visually
+   * identical to a paragraph (same size, same weight) even though they
+   * were structurally real <h1>/<h2>/<h3> elements the whole time — the
+   * toggle command itself was never the problem, only the missing CSS to
+   * make the three levels look distinct from each other and from body
+   * text. Sizes/weights are scaled from the existing --font-sans /
+   * --font-serif tokens already used for on-page headings elsewhere in
+   * the Dashboard, not invented from scratch.
+   */
+  .prose-editor .ProseMirror h1 {
+    font-family: var(--font-serif);
+    font-size: 1.875rem;
+    line-height: 2.25rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin-top: 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .prose-editor .ProseMirror h2 {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 700;
+    margin-top: 0.875rem;
+    margin-bottom: 0.5rem;
+  }
+  .prose-editor .ProseMirror h3 {
+    font-size: 1.25rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    margin-top: 0.75rem;
+    margin-bottom: 0.375rem;
+  }
+  .prose-editor .ProseMirror p {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    margin-bottom: 0.5rem;
+  }
+  .prose-editor .ProseMirror ul {
+    list-style: disc;
+    padding-inline-start: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .prose-editor .ProseMirror ol {
+    list-style: decimal;
+    padding-inline-start: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+  .prose-editor .ProseMirror li {
+    margin-bottom: 0.25rem;
+  }
+  .prose-editor .ProseMirror blockquote {
+    border-inline-start: 3px solid var(--color-neutral-300);
+    padding-inline-start: 0.75rem;
+    color: var(--color-neutral-600);
+    font-style: italic;
+    margin-bottom: 0.5rem;
+  }
+  .prose-editor .ProseMirror a {
+    color: var(--color-primary-600);
+    text-decoration: underline;
+  }
+  .prose-editor .ProseMirror img {
+    border-radius: var(--radius-md);
+    max-width: 100%;
+  }
+}
