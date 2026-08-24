@@ -1202,6 +1202,87 @@ async function main() {
     console.log(`Seeded initial FAQ content (${faqSeedData.length} items across 4 categories, EN+AR, Published).`);
   }
 
+  // ZynReach Marketplace — module:action permissions, same faqActions/
+  // grantFaq shape. Only two actions: this module never has a
+  // Draft->Review->Publish workflow (see the model comment), it's a
+  // flat view/manage split like Redirects.
+  const marketplaceActions = ["view", "manage"] as const;
+  const marketplacePermissions = new Map<string, { id: string }>();
+  for (const action of marketplaceActions) {
+    const permission = await prisma.permission.upsert({
+      where: { module_action: { module: "marketplace", action } },
+      update: {},
+      create: { module: "marketplace", action },
+    });
+    marketplacePermissions.set(action, permission);
+  }
+  async function grantMarketplace(roleName: string, actions: (typeof marketplaceActions)[number][]) {
+    const roleId = roleIdByName.get(roleName)!;
+    for (const action of actions) {
+      const permission = marketplacePermissions.get(action)!;
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId, permissionId: permission.id } },
+        update: {},
+        create: { roleId, permissionId: permission.id },
+      });
+    }
+  }
+  await grantMarketplace("Content Editor", ["view"]);
+  await grantMarketplace("Super Administrator", ["view", "manage"]);
+
+  // One row per real tool slug already defined in zynreach-website's
+  // capabilities.ts (src/lib/content/capabilities.ts) — the Marketplace
+  // Suite/Tool Catalog is these same ~30 capabilities, admin-curated for
+  // visibility/featured/plan-gating rather than a separate content type.
+  // Idempotent (skipped if any row already exists), same guard style as
+  // the Pricing seed above.
+  const existingMarketplaceListing = await prisma.marketplaceListing.findFirst();
+  if (existingMarketplaceListing) {
+    console.log("Marketplace listings already exist — skipping marketplace seed.");
+  } else {
+    const marketplaceToolSlugs = [
+      "ai-assistants",
+      "crm",
+      "marketing-automation",
+      "lead-generation",
+      "workflow-automation",
+      "analytics",
+      "sales-pipeline",
+      "campaigns",
+      "contact-360",
+      "business-data",
+      "ai-workspace",
+      "ai-agents",
+      "ai-insights",
+      "automation-center",
+      "reports",
+      "business-intelligence",
+      "executive-dashboards",
+      "scheduled-reports",
+      "project-management",
+      "task-management",
+      "hr-management",
+      "attendance-leave",
+      "teams-departments",
+      "finance-accounting",
+      "document-center",
+      "customer-portal",
+      "subscription-billing",
+      "notifications",
+      "marketplace",
+      "plugin-sdk",
+      "organization-management",
+      "branch-management",
+      "audit",
+    ];
+    for (const [index, toolSlug] of marketplaceToolSlugs.entries()) {
+      await prisma.marketplaceListing.create({
+        data: { toolSlug, order: index, visible: true, featured: false, minPlanTier: "STARTER" },
+      });
+    }
+    console.log(`Seeded ${marketplaceToolSlugs.length} Marketplace listings.`);
+  }
+
   const existingSuperAdmin = await prisma.adminUser.findFirst({
     where: { roles: { some: { roleId: superAdminRoleId } } },
   });

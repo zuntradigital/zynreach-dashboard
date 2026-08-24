@@ -6,6 +6,7 @@ import { recordAudit } from "@/lib/audit";
 import { getClientIp } from "@/lib/request-meta";
 import { blogActionSchema } from "@/lib/validation";
 import { canSubmitForReview, canDecideReview, canSchedule, canPublishNow, canArchive, canRollback } from "@/lib/content/workflow";
+import { notifySubscribers } from "@/lib/notifications/dispatch";
 
 /**
  * SCR-006's workflow action bar — same shape as Pages/Pricing's actions
@@ -185,6 +186,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       ipAddress,
       sessionId: session.id,
     });
+
+    if (post.currentVersionId) {
+      const version = await prisma.blogPostVersion.findUnique({ where: { id: post.currentVersionId }, select: { translations: true } });
+      const title = (version?.translations as { en?: { title?: string } } | undefined)?.en?.title;
+      const base = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://www.zynreach.com";
+      if (title) {
+        notifySubscribers({ category: "BLOG", title, url: `${base}/en/blog/${post.slug}` }).catch(() => undefined);
+      }
+    }
+
     return NextResponse.json({ status: "success", post: updated });
   }
 

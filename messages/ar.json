@@ -75,7 +75,8 @@
     "taxonomy": "الوسوم والتصنيفات",
     "docs": "التوثيق",
     "apiReference": "مرجع واجهة البرمجة",
-    "faq": "الأسئلة الشائعة"
+    "faq": "الأسئلة الشائعة",
+    "marketplace": "المتجر"
   },
   "reauth": {
     "title": "تأكيد الهوية",
@@ -200,7 +201,9 @@
         "customerStories": "قصص العملاء",
         "webinars": "الندوات",
         "docs": "التوثيق",
-        "api": "مرجع API"
+        "api": "مرجع واجهة البرمجة",
+        "faq": "الأسئلة الشائعة",
+        "marketplace": "المتجر"
       },
       "actionNames": {
         "view": "عرض",
@@ -500,6 +503,24 @@
       "deleteError": "تعذّر حذف السؤال. حاول مرة أخرى.",
       "deleteConfirm": "هل تريد حذف هذا السؤال؟ لا يمكن التراجع عن هذا الإجراء.",
       "uncategorized": "غير مصنّف"
+    },
+    "marketplace": {
+      "title": "المتجر",
+      "subtitle": "تحكّم في الأدوات الظاهرة في متجر ZynReach، وميّز بعضها، وقيّدها حسب الخطة.",
+      "forbidden": "لا تملك صلاحية عرض هذه الصفحة.",
+      "loadError": "تعذّر تحميل القوائم. حاول مرة أخرى.",
+      "retry": "إعادة المحاولة",
+      "empty": "لا توجد قوائم بعد.",
+      "toolColumn": "الأداة",
+      "visibleColumn": "ظاهر",
+      "featuredColumn": "مميّز",
+      "planColumn": "الحد الأدنى للخطة",
+      "orderColumn": "الترتيب",
+      "planStarter": "Starter",
+      "planGrowth": "Growth",
+      "planEnterprise": "Enterprise",
+      "saveError": "تعذّر حفظ التغييرات. حاول مرة أخرى.",
+      "saved": "تم الحفظ"
     },
     "pages": {
       "title": "الصفحات",

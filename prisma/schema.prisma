@@ -1544,3 +1544,68 @@ model FaqItem {
   @@index([category])
   @@index([status])
 }
+
+/// Notifications Center — event-based email subscriber. Created directly
+/// by the public "subscribe to updates" form on the website (no admin
+/// authorship), so unlike Redirect/FaqItem this has no createdByUserId.
+/// `categories` is a JSON string array of NotificationCategory values
+/// (free-form rather than a join table — only two categories exist today,
+/// same "small fixed set doesn't need a relational taxonomy" reasoning as
+/// FaqItem.category above) — dispatch (src/lib/notifications/dispatch.ts)
+/// filters in application code rather than a JSON-array DB query, for
+/// portability. `unsubscribeToken` is the sole authentication for the
+/// public unsubscribe endpoint — a visitor was never asked to create an
+/// account, so there is no session to gate that action with instead.
+model NotificationSubscriber {
+  id               String   @id @default(cuid())
+  email            String   @unique
+  /// string[] of NotificationCategory values, e.g. ["BLOG","WEBINARS"]
+  categories       Json
+  unsubscribeToken String   @unique
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+/// Notifications Center — Web Push subscription (SRS "Push Notifications").
+/// Same public, account-less creation as NotificationSubscriber above —
+/// registered directly by the browser's PushManager via the website's
+/// service worker. `endpoint` is not @unique: MySQL requires an explicit
+/// length for a unique index on a @db.Text column, and push endpoints can
+/// exceed that safely-indexable length — dedup-on-resubscribe is handled
+/// in the public API route (find-by-endpoint, then update-or-create)
+/// instead of at the schema level.
+model PushSubscription {
+  id         String   @id @default(cuid())
+  endpoint   String   @db.Text
+  p256dh     String   @db.Text
+  auth       String   @db.Text
+  /// string[] of NotificationCategory values, same shape as
+  /// NotificationSubscriber.categories.
+  categories Json
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+/// ZynReach Marketplace — admin-configurable catalog listing, one row per
+/// tool slug already defined in the website's own capabilities content
+/// (src/lib/content/capabilities.ts in zynreach-website) — this table
+/// does not define new tools, it configures how each EXISTING tool
+/// appears in the Marketplace catalog. Direct-edit, no workflow, same
+/// "config row, not authored content" shape as SiteSetting/FooterSettings
+/// column-visibility toggles — no createdByUserId for the same reason.
+enum MarketplacePlanTier {
+  STARTER
+  GROWTH
+  ENTERPRISE
+}
+
+model MarketplaceListing {
+  id          String              @id @default(cuid())
+  toolSlug    String              @unique
+  visible     Boolean             @default(true)
+  featured    Boolean             @default(false)
+  minPlanTier MarketplacePlanTier @default(STARTER)
+  order       Int                 @default(0)
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}

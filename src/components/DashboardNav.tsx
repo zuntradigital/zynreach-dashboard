@@ -16,6 +16,7 @@ interface DashboardNavProps {
   canViewWebinars: boolean;
   canViewCareers: boolean;
   canViewFaq: boolean;
+  canViewMarketplace: boolean;
 }
 
 /**
@@ -53,6 +54,7 @@ export function DashboardNav({
   canViewWebinars,
   canViewCareers,
   canViewFaq,
+  canViewMarketplace,
 }: DashboardNavProps) {
   const t = useTranslations("nav");
   const pathname = usePathname();
@@ -116,6 +118,11 @@ export function DashboardNav({
       {canViewFaq ? (
         <Link href="/faq" className={linkClass("/faq")} aria-current={isActive("/faq") ? "page" : undefined}>
           {t("faq")}
+        </Link>
+      ) : null}
+      {canViewMarketplace ? (
+        <Link href="/marketplace" className={linkClass("/marketplace")} aria-current={isActive("/marketplace") ? "page" : undefined}>
+          {t("marketplace")}
         </Link>
       ) : null}
       {canManageUsers ? (

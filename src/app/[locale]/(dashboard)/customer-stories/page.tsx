@@ -1,9 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
-import { TextField } from "@/components/ui/TextField";
 import { ActionButton } from "@/components/ui/ActionButton";
 
 interface CustomerStoryRow {
@@ -40,8 +39,12 @@ export default function CustomerStoryListPage() {
   const router = useRouter();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [canCreate, setCanCreate] = useState(false);
+  const [canDelete, setCanDelete] = useState(false);
 
   const load = useCallback(async (status: string) => {
     try {
@@ -58,7 +61,9 @@ export default function CustomerStoryListPage() {
       const data = await res.json();
       if (sessionRes.ok) {
         const sessionData = await sessionRes.json();
-        setCanCreate(new Set<string>(sessionData.user.permissions).has("customerStories:create"));
+        const perms = new Set<string>(sessionData.user.permissions);
+        setCanCreate(perms.has("customerStories:create"));
+        setCanDelete(perms.has("customerStories:delete"));
       }
       setState({ kind: "ready", stories: data.stories, total: data.total });
     } catch {
@@ -70,6 +75,55 @@ export default function CustomerStoryListPage() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load(statusFilter);
   }, [load, statusFilter]);
+
+  /**
+   * "New Story" used to open a modal asking for a slug/customer name/
+   * industry up front. The admin has nothing meaningful to decide at that
+   * point — every real field lives in the full editor — so this now
+   * creates a bare draft with an auto-generated, collision-proof slug and
+   * drops the admin straight into the editor, matching Blog/Webinars'
+   * "New" flow exactly.
+   */
+  async function handleCreate() {
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/admin/customer-stories", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: `untitled-story-${Date.now()}` }),
+      });
+      if (!res.ok) {
+        setCreateError(t("createError"));
+        return;
+      }
+      const data = await res.json();
+      router.push(`/customer-stories/${data.story.id}`);
+    } catch {
+      setCreateError(t("createError"));
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (typeof window !== "undefined" && !window.confirm(t("deleteConfirm"))) return;
+    setDeletingId(id);
+    setDeleteError(null);
+    try {
+      const res = await fetch(`/api/admin/customer-stories/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setDeleteError(data.error ?? t("deleteError"));
+        return;
+      }
+      await load(statusFilter);
+    } catch {
+      setDeleteError(t("deleteError"));
+    } finally {
+      setDeletingId(null);
+    }
+  }
 
   if (state.kind === "forbidden") {
     return <p className="text-sm text-neutral-500">{t("forbidden")}</p>;
@@ -85,13 +139,20 @@ export default function CustomerStoryListPage() {
         {canCreate ? (
           <button
             type="button"
-            onClick={() => setShowCreate(true)}
-            className="min-h-9 shrink-0 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700"
+            onClick={() => void handleCreate()}
+            disabled={creating}
+            className="min-h-9 shrink-0 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
           >
-            {t("newStory")}
+            {creating ? t("creating") : t("newStory")}
           </button>
         ) : null}
       </div>
+
+      {createError ? (
+        <div role="alert" className="rounded-md bg-error-bg px-3 py-2 text-sm text-error">
+          {createError}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2">
         <label htmlFor="status-filter" className="text-sm font-medium text-neutral-700">
@@ -111,6 +172,12 @@ export default function CustomerStoryListPage() {
           ))}
         </select>
       </div>
+
+      {deleteError ? (
+        <div role="alert" className="rounded-md bg-error-bg px-3 py-2 text-sm text-error">
+          {deleteError}
+        </div>
+      ) : null}
 
       {state.kind === "loading" ? <p className="text-sm text-neutral-500">{tCommon("loading")}</p> : null}
 
@@ -156,18 +223,25 @@ export default function CustomerStoryListPage() {
                         <img src={row.customerLogo.url} alt="" className="h-6 w-6 shrink-0 rounded object-contain" />
                       ) : null}
                       <span>
-                        {row.customerName}
+                        {row.customerName || row.slug}
                         {row.featured ? <span className="ms-1.5 rounded-full bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-700">{t("featuredBadge")}</span> : null}
                       </span>
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-neutral-600">{row.industry}</td>
+                  <td className="px-4 py-3 text-neutral-600">{row.industry || "—"}</td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_BADGE_CLASS[row.status]}`}>{t(`status.${row.status}`)}</span>
                   </td>
                   <td className="px-4 py-3 text-neutral-500">{new Date(row.updatedAt).toLocaleString(dashboardLocale === "ar" ? "ar-EG" : "en-US")}</td>
                   <td className="px-4 py-3">
-                    <ActionButton href={`/customer-stories/${row.id}`}>{t("edit")}</ActionButton>
+                    <div className="flex items-center gap-1">
+                      <ActionButton href={`/customer-stories/${row.id}`}>{t("edit")}</ActionButton>
+                      {canDelete ? (
+                        <ActionButton tone="danger" onClick={() => void handleDelete(row.id)} disabled={deletingId !== null}>
+                          {deletingId === row.id ? t("deleting") : t("delete")}
+                        </ActionButton>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -175,95 +249,6 @@ export default function CustomerStoryListPage() {
           </table>
         </div>
       ) : null}
-
-      {showCreate ? (
-        <CreateCustomerStoryModal
-          onClose={() => setShowCreate(false)}
-          onCreated={(id) => {
-            setShowCreate(false);
-            router.push(`/customer-stories/${id}`);
-          }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function CreateCustomerStoryModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
-  const t = useTranslations("dashboard.customerStories");
-  const [slug, setSlug] = useState("");
-  const [customerName, setCustomerName] = useState("");
-  const [industry, setIndustry] = useState("");
-  const [companySize, setCompanySize] = useState("");
-  const [country, setCountry] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/customer-stories", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, customerName, industry, companySize: companySize.trim() || null, country: country.trim() || null }),
-      });
-      if (res.status === 409) {
-        setError(t("slugTaken"));
-        return;
-      }
-      if (!res.ok) {
-        setError(t("createError"));
-        return;
-      }
-      const data = await res.json();
-      onCreated(data.story.id);
-    } catch {
-      setError(t("createError"));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 px-4">
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg">
-        <h2 className="text-base font-semibold text-neutral-900">{t("createTitle")}</h2>
-        <p className="mt-0.5 text-sm text-neutral-500">{t("createSubtitle")}</p>
-
-        {error ? (
-          <div role="alert" className="mt-4 rounded-md bg-error-bg px-3 py-2 text-sm text-error">
-            {error}
-          </div>
-        ) : null}
-
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4" noValidate>
-          <TextField label={t("slugLabel")} name="slug" value={slug} onChange={setSlug} required />
-          <TextField label={t("customerNameLabel")} name="customerName" value={customerName} onChange={setCustomerName} required />
-          <TextField label={t("industryLabel")} name="industry" value={industry} onChange={setIndustry} required />
-          <TextField label={t("companySizeLabel")} name="companySize" value={companySize} onChange={setCompanySize} required={false} />
-          <TextField label={t("countryLabel")} name="country" value={country} onChange={setCountry} required={false} />
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="min-h-9 rounded-md px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-100"
-            >
-              {t("cancel")}
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="min-h-9 rounded-md bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-            >
-              {submitting ? t("creating") : t("create")}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

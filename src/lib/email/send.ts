@@ -111,3 +111,72 @@ export async function sendInvitationEmail(input: InvitationEmailInput): Promise<
     return { sent: false, reason };
   }
 }
+
+/**
+ * Notifications Center — event-based email (SRS "Email Notifications" /
+ * "Event-based Notifications"), sent to NotificationSubscriber rows whose
+ * `categories` include the event's category, from the blog/webinar
+ * publish hooks (src/lib/notifications/dispatch.ts). Same transporter,
+ * same missing-config/failure contract as sendInvitationEmail above —
+ * this reuses getTransporter() rather than opening a second connection.
+ */
+export interface NotificationEmailInput {
+  to: string;
+  title: string;
+  url: string;
+  unsubscribeUrl: string;
+}
+
+function renderNotificationEmailHtml(input: NotificationEmailInput): string {
+  return `
+    <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; color: #171717;">
+      <h1 style="font-size: 20px; margin: 0 0 16px;">${input.title}</h1>
+      <p style="font-size: 14px; line-height: 1.6; color: #404040;">
+        There's new content on ZynReach you subscribed to be notified about.
+      </p>
+      <p style="margin: 24px 0;">
+        <a href="${input.url}" style="display: inline-block; background: #1d4ed8; color: #ffffff; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 600;">
+          Read it now
+        </a>
+      </p>
+      <p style="font-size: 13px; color: #a3a3a3; margin-top: 32px;">
+        <a href="${input.unsubscribeUrl}" style="color: #a3a3a3;">Unsubscribe</a> from these notifications at any time.
+      </p>
+    </div>
+  `.trim();
+}
+
+export async function sendNotificationEmail(input: NotificationEmailInput): Promise<SendEmailResult> {
+  const { to, title } = input;
+  const transporter = getTransporter();
+  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+
+  if (!transporter || !from) {
+    const missing = [
+      !process.env.SMTP_HOST && "SMTP_HOST",
+      !process.env.SMTP_PORT && "SMTP_PORT",
+      !process.env.SMTP_USER && "SMTP_USER",
+      !process.env.SMTP_PASSWORD && "SMTP_PASSWORD",
+      !from && "SMTP_FROM",
+    ]
+      .filter((name): name is string => Boolean(name))
+      .join(" / ");
+    console.error(`[email:notification] Not configured — missing ${missing}. Notification for ${to}: ${title}`);
+    return { sent: false, reason: `Email provider is not configured (${missing} missing).` };
+  }
+
+  try {
+    await transporter.sendMail({
+      from: `"ZynReach" <${from}>`,
+      to,
+      subject: title,
+      html: renderNotificationEmailHtml(input),
+    });
+
+    return { sent: true };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "Unknown email delivery error.";
+    console.error(`[email:notification] Failed to send to ${to}:`, reason);
+    return { sent: false, reason };
+  }
+}

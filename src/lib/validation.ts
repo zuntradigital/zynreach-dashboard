@@ -779,8 +779,11 @@ const customerStoryTranslationsSchema = z.object({ en: customerStoryLocaleTextSc
 
 export const createCustomerStorySchema = z.object({
   slug: slugSchema,
-  customerName: z.string().trim().min(1).max(200),
-  industry: z.string().trim().min(1).max(200),
+  // Optional at create time, same as Webinar's initial `title` — the
+  // admin has nothing meaningful to decide before reaching the full
+  // editor, where every real field (including these two) is entered.
+  customerName: z.string().trim().max(200).default(""),
+  industry: z.string().trim().max(200).default(""),
   companySize: z.string().trim().max(100).nullable().default(null),
   country: z.string().trim().max(100).nullable().default(null),
   featured: z.boolean().default(false),
@@ -1009,4 +1012,55 @@ export const faqItemsQuerySchema = z.object({
 
 export type CreateFaqItemInput = z.infer<typeof createFaqItemSchema>;
 export type SaveFaqItemInput = z.infer<typeof saveFaqItemSchema>;
+
+/**
+ * Notifications Center — event-based email + push subscriptions. Both
+ * are created directly by public, unauthenticated website forms (no
+ * AdminUser session), so validation here is the only gate — same
+ * contract as leadIngestSchema above.
+ */
+export const NOTIFICATION_CATEGORY_VALUES = ["BLOG", "WEBINARS"] as const;
+const notificationCategoriesSchema = z.array(z.enum(NOTIFICATION_CATEGORY_VALUES)).min(1).max(NOTIFICATION_CATEGORY_VALUES.length);
+
+export const subscribeNotificationsSchema = z.object({
+  email: z.string().trim().email().max(255),
+  categories: notificationCategoriesSchema,
+});
+
+export const unsubscribeNotificationsSchema = z.object({
+  token: z.string().trim().min(1),
+});
+
+export const pushSubscribeSchema = z.object({
+  endpoint: z.string().trim().url().max(2000),
+  keys: z.object({
+    p256dh: z.string().trim().min(1),
+    auth: z.string().trim().min(1),
+  }),
+  categories: notificationCategoriesSchema,
+});
+
+export const pushUnsubscribeSchema = z.object({
+  endpoint: z.string().trim().url().max(2000),
+});
+
+export type SubscribeNotificationsInput = z.infer<typeof subscribeNotificationsSchema>;
+export type PushSubscribeInput = z.infer<typeof pushSubscribeSchema>;
+
+/**
+ * ZynReach Marketplace — MarketplaceListing is direct-edit config over an
+ * already-fixed set of tool slugs (see schema.prisma's own comment): no
+ * "create" schema is needed since rows are seeded once from the
+ * website's real capability slugs, only ever PATCHed afterward.
+ */
+export const MARKETPLACE_PLAN_TIER_VALUES = ["STARTER", "GROWTH", "ENTERPRISE"] as const;
+
+export const updateMarketplaceListingSchema = z.object({
+  visible: z.boolean(),
+  featured: z.boolean(),
+  minPlanTier: z.enum(MARKETPLACE_PLAN_TIER_VALUES),
+  order: z.number().int().min(0),
+});
+
+export type UpdateMarketplaceListingInput = z.infer<typeof updateMarketplaceListingSchema>;
 export type FaqItemsQuery = z.infer<typeof faqItemsQuerySchema>;

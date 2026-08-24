@@ -32,6 +32,7 @@
   ],
   "exclude": [
     "node_modules",
-    "scripts/migrate-pg-to-mysql.ts"
+    "scripts/migrate-pg-to-mysql.ts",
+    "prisma/seed.ts"
   ]
 }

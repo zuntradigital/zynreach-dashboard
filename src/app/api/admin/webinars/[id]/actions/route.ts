@@ -6,6 +6,7 @@ import { recordAudit } from "@/lib/audit";
 import { getClientIp } from "@/lib/request-meta";
 import { webinarActionSchema } from "@/lib/validation";
 import { canSubmitForReview, canDecideReview, canSchedule, canPublishNow, canArchive, canRollback } from "@/lib/content/workflow";
+import { notifySubscribers } from "@/lib/notifications/dispatch";
 
 /**
  * Knowledge Center §9's workflow action bar — same shape as Blog/
@@ -182,6 +183,16 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       ipAddress,
       sessionId: session.id,
     });
+
+    if (webinar.currentVersionId) {
+      const version = await prisma.webinarVersion.findUnique({ where: { id: webinar.currentVersionId }, select: { translations: true } });
+      const title = (version?.translations as { en?: { title?: string } } | undefined)?.en?.title;
+      const base = process.env.NEXT_PUBLIC_WEBSITE_URL || "https://www.zynreach.com";
+      if (title) {
+        notifySubscribers({ category: "WEBINARS", title, url: `${base}/en/webinars/${webinar.slug}` }).catch(() => undefined);
+      }
+    }
+
     return NextResponse.json({ status: "success", webinar: updated });
   }
 
