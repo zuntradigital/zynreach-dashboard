@@ -7,6 +7,22 @@ import { generateToken, hashToken } from "./tokens";
 const ISSUER = "ZynReach Admin";
 
 /**
+ * otplib's authenticator defaults to `window: 0` — it accepts only the
+ * exact current 30s time step and rejects everything else, with zero
+ * tolerance. That's tighter than the code's own step size affords: any
+ * normal clock drift between the phone and this server, or the few
+ * seconds it legitimately takes to read a code off Google Authenticator
+ * and type it in, pushes the request past the boundary and rejects an
+ * otherwise-correct code. RFC 6238 §5.2 recommends allowing a bounded
+ * window around the current step for exactly this reason; `window: 1`
+ * accepts the previous, current, and next 30s step (a ±30s tolerance),
+ * which is the standard balance used by mainstream TOTP implementations
+ * — enough to absorb real-world drift/typing delay without materially
+ * widening the code's replay window.
+ */
+authenticator.options = { window: 1 };
+
+/**
  * AdminUser.mfaSecret encryption at rest (AES-256-GCM, MFA_SECRET_ENCRYPTION_KEY).
  * `ENCRYPTED_PREFIX` distinguishes newly-encrypted values from secrets
  * written before this was added — those are legacy plaintext and are
