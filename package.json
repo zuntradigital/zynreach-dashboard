@@ -19,7 +19,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@next/swc-wasm-nodejs": "16.3.0",
+    "@next/swc-wasm-nodejs": "16.2.0",
     "@prisma/client": "^6.2.1",
     "@tiptap/extension-image": "^2.27.2",
     "@tiptap/extension-link": "^2.27.2",
@@ -27,7 +27,7 @@
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "argon2": "^0.41.1",
-    "next": "16.3.0",
+    "next": "16.2.0",
     "next-intl": "^4.13.4",
     "nodemailer": "^9.0.5",
     "otplib": "^12.0.1",
@@ -50,7 +50,7 @@
     "@types/web-push": "^3.6.4",
     "@vitejs/plugin-react": "^6.0.5",
     "eslint": "^9",
-    "eslint-config-next": "16.3.0",
+    "eslint-config-next": "16.2.0",
     "jsdom": "^30.0.1",
     "prisma": "^6.2.1",
     "tailwindcss": "^4",
