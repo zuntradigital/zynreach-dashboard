@@ -19,6 +19,7 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@next/swc-wasm-nodejs": "16.3.0",
     "@prisma/client": "^6.2.1",
     "@tiptap/extension-image": "^2.27.2",
     "@tiptap/extension-link": "^2.27.2",
@@ -38,7 +39,6 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
-    "@next/swc-wasm-nodejs": "^16.3.0",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
