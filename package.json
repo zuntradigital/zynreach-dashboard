@@ -27,6 +27,7 @@
     "@tiptap/react": "^2.27.2",
     "@tiptap/starter-kit": "^2.27.2",
     "argon2": "^0.41.1",
+    "mysql2": "^3.24.2",
     "next": "16.2.0",
     "next-intl": "^4.13.4",
     "nodemailer": "^9.0.5",
