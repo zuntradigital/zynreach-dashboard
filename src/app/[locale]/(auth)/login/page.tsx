@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { useRouter } from "@/i18n/navigation";
 import { TextField } from "@/components/ui/TextField";
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type Step =
   | { kind: "credentials" }
@@ -92,7 +93,8 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-50 px-4 py-12">
-      <div className="absolute top-4 end-4">
+      <div className="absolute top-4 end-4 flex items-center gap-2">
+        <ThemeToggle />
         <LanguageSwitcher />
       </div>
 

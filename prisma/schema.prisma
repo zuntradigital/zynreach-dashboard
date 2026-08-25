@@ -131,8 +131,8 @@ model AdminUser {
   webinarVersionsPublished       WebinarVersion[]       @relation("WebinarVersionPublishedBy")
   docArticlesCreated             DocArticle[]
   apiEndpointsCreated            ApiEndpoint[]
-  redirectsCreated                Redirect[]
-  faqItemsCreated                 FaqItem[]
+  redirectsCreated               Redirect[]
+  faqItemsCreated                FaqItem[]
 
   @@index([status])
 }
@@ -1041,23 +1041,23 @@ model Resource {
 /// SRS §28.2 ResourceVersion — immutable snapshot, same pattern as
 /// PricingVersion/BlogPostVersion.
 model ResourceVersion {
-  id                String    @id @default(cuid())
-  resourceId        String
-  versionNumber     Int
+  id                   String    @id @default(cuid())
+  resourceId           String
+  versionNumber        Int
   /// { en: { title, description }, ar: {...} }
-  translations      Json
+  translations         Json
   /// Knowledge Center §7 Content Page fields — locale-invariant facts, same
   /// split as every other versioned model's flat-vs-translations columns.
-  category          String?
-  targetAudience    String?
+  category             String?
+  targetAudience       String?
   /// "when needed" per spec — most Templates/Checklists skip it.
-  difficultyLevel   String?
+  difficultyLevel      String?
   /// Slugs of other Resources shown as this one's "Related Content".
-  relatedResourceSlugs Json  @default("[]")
-  publishedAt       DateTime?
-  publishedByUserId String?
-  createdByUserId   String?
-  createdAt         DateTime  @default(now())
+  relatedResourceSlugs Json      @default("[]")
+  publishedAt          DateTime?
+  publishedByUserId    String?
+  createdByUserId      String?
+  createdAt            DateTime  @default(now())
 
   resource           Resource   @relation("ResourceVersions", fields: [resourceId], references: [id], onDelete: Cascade)
   currentForResource Resource?  @relation("ResourceCurrentVersion")
