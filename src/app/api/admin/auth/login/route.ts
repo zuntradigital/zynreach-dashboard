@@ -41,7 +41,27 @@ export async function POST(request: Request) {
   const ipAddress = getClientIp(request);
   const userAgent = getUserAgent(request);
 
-  const adminUser = await prisma.adminUser.findUnique({ where: { email } });
+  let adminUser;
+  try {
+    adminUser = await prisma.adminUser.findUnique({ where: { email } });
+  } catch (err) {
+    // TEMPORARY diagnostic — logs only shape/metadata about DATABASE_URL
+    // as this specific running process sees it (never the value itself),
+    // to distinguish "not set", "wrong protocol", and "extra
+    // quotes/whitespace" without exposing credentials in server logs.
+    // Remove once the production DATABASE_URL issue is confirmed fixed.
+    const raw = process.env.DATABASE_URL;
+    console.error("[login] prisma.adminUser.findUnique threw:", err instanceof Error ? err.message : err);
+    console.error("[login] DATABASE_URL diagnostic:", {
+      isSet: raw !== undefined,
+      length: raw?.length ?? 0,
+      startsWithMysqlProtocol: raw?.startsWith("mysql://") ?? false,
+      hasLeadingOrTrailingWhitespace: raw !== undefined && raw !== raw.trim(),
+      isWrappedInQuotes: raw !== undefined && /^['"].*['"]$/.test(raw),
+      first10Chars: raw?.slice(0, 10) ?? null,
+    });
+    throw err;
+  }
 
   // Generic failure response for every rejection path below — never
   // reveal whether the email exists, the password was wrong, or the
