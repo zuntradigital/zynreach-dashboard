@@ -36,7 +36,22 @@
 // default VARCHAR(191), which comfortably fits all of them.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
+  // Hostinger's server reports GLIBC 2.28 (Debian 10 "buster"'s exact
+  // shipped version — already confirmed the direct cause of the earlier
+  // Next.js/SWC native-binary failure, a separate Rust-compiled binary
+  // with the same class of GLIBC-version dependency Prisma's own query
+  // engine has). Without an explicit binaryTargets list, `prisma
+  // generate` only builds an engine for whatever platform it happens to
+  // run on ("native") — correct if that's always Hostinger's actual
+  // runtime server, but silently wrong (a missing/incompatible engine
+  // binary at runtime, surfacing as an unhandled exception on every DB
+  // call) if the build step runs anywhere else, or if Prisma's own
+  // distro auto-detection misidentifies this specific base image.
+  // Pinning "debian-openssl-1.1.x" (Debian 10's actual OpenSSL version)
+  // alongside "native" guarantees a GLIBC-2.28-compatible engine is
+  // always produced for deployment, regardless of where generation runs.
+  binaryTargets = ["native", "debian-openssl-1.1.x"]
 }
 
 datasource db {
