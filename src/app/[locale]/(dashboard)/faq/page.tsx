@@ -45,7 +45,11 @@ export default function FaqPage() {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/admin/faq?take=200");
+      // take is capped at PAGE_SIZE_MAX (100) server-side by
+      // faqItemsQuerySchema — requesting more than that fails validation
+      // with a 400, which is exactly what was causing "Unable to load
+      // FAQs" on every visit to this page.
+      const res = await fetch("/api/admin/faq?take=100");
       if (res.status === 403) {
         setPageState({ kind: "forbidden" });
         return;

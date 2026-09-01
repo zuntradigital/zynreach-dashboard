@@ -73,10 +73,7 @@
     "webinars": "Webinars",
     "careers": "Careers",
     "taxonomy": "Tags & Categories",
-    "docs": "Documentation",
-    "apiReference": "API Reference",
-    "faq": "FAQ",
-    "marketplace": "Marketplace"
+    "faq": "FAQ"
   },
   "reauth": {
     "title": "Confirm it's you",
@@ -200,10 +197,7 @@
         "careers": "Careers",
         "customerStories": "Customer Stories",
         "webinars": "Webinars",
-        "docs": "Documentation",
-        "api": "API Reference",
-        "faq": "FAQ",
-        "marketplace": "Marketplace"
+        "faq": "FAQ"
       },
       "actionNames": {
         "view": "View",
@@ -503,24 +497,6 @@
       "deleteError": "Couldn't delete FAQ. Try again.",
       "deleteConfirm": "Delete this FAQ? This cannot be undone.",
       "uncategorized": "Uncategorized"
-    },
-    "marketplace": {
-      "title": "Marketplace",
-      "subtitle": "Control which tools appear in the ZynReach Marketplace, feature them, and gate them by plan.",
-      "forbidden": "You don't have permission to view this page.",
-      "loadError": "Couldn't load listings. Try again.",
-      "retry": "Retry",
-      "empty": "No listings yet.",
-      "toolColumn": "Tool",
-      "visibleColumn": "Visible",
-      "featuredColumn": "Featured",
-      "planColumn": "Minimum plan",
-      "orderColumn": "Order",
-      "planStarter": "Starter",
-      "planGrowth": "Growth",
-      "planEnterprise": "Enterprise",
-      "saveError": "Couldn't save changes. Try again.",
-      "saved": "Saved"
     },
     "pages": {
       "title": "Pages",
@@ -1389,7 +1365,7 @@
       "portfolioLabel": "Portfolio / LinkedIn",
       "submittedLabel": "Submitted",
       "genderLabel": "Gender",
-      "veteranStatusLabel": "Veteran status",
+      "veteranStatusLabel": "Military Service",
       "resumeTitle": "Resume",
       "downloadResume": "Download resume"
     },

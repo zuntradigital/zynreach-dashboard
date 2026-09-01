@@ -48,7 +48,6 @@ export default async function DashboardLayout({ children, params }: DashboardLay
           canViewWebinars={hasPermission(effective, "webinars", "view")}
           canViewCareers={hasPermission(effective, "careers", "view")}
           canViewFaq={hasPermission(effective, "faq", "view")}
-          canViewMarketplace={hasPermission(effective, "marketplace", "view")}
         />
       </DashboardSidebar>
       <main className="mx-auto max-w-5xl px-6 py-8 md:ms-64">{children}</main>

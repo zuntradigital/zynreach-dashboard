@@ -357,7 +357,7 @@ async function main() {
   // Media Manager/Content Manager/Read Only were retired above.
   await grantMedia("Content Editor", ["view", "upload"]);
   // Super Administrator: Delete stays OFF by default.
-  await grantMedia("Super Administrator", ["view", "upload", "edit", "archive"]);
+  await grantMedia("Super Administrator", ["view", "upload", "edit", "archive", "delete"]);
 
   // Pricing Management (§3, §15). "Pricing Manager: Full authority over
   // the Pricing module lifecycle, subject to the same reviewer-approval
@@ -491,7 +491,7 @@ async function main() {
   await grantCareers("Content Editor", ["view", "create", "edit", "submit"]);
   await grantCareers("Writer", ["view", "create", "archive", "submit"]);
   await grantCareers("Super Administrator", [
-    "view", "create", "edit", "archive", "submit", "requestChanges", "approve", "publish", "schedule", "rollback",
+    "view", "create", "edit", "delete", "archive", "submit", "requestChanges", "approve", "publish", "schedule", "rollback",
   ]);
 
   // Customer Stories, Webinars — Knowledge Center content types (file 2
@@ -524,7 +524,7 @@ async function main() {
   await grantCustomerStories("Content Editor", ["view", "create", "edit", "submit"]);
   await grantCustomerStories("Writer", ["view", "create", "archive", "submit"]);
   await grantCustomerStories("Super Administrator", [
-    "view", "create", "edit", "archive", "submit", "requestChanges", "approve", "publish", "schedule", "rollback",
+    "view", "create", "edit", "delete", "archive", "submit", "requestChanges", "approve", "publish", "schedule", "rollback",
   ]);
 
   const webinarsActions = [
@@ -553,69 +553,12 @@ async function main() {
   await grantWebinars("Content Editor", ["view", "create", "edit", "submit"]);
   await grantWebinars("Writer", ["view", "create", "archive", "submit"]);
   await grantWebinars("Super Administrator", [
-    "view", "create", "edit", "archive", "submit", "requestChanges", "approve", "publish", "schedule", "rollback",
+    "view", "create", "edit", "delete", "archive", "submit", "requestChanges", "approve", "publish", "schedule", "rollback",
   ]);
 
-  // Documentation, API Reference — Technical/Developer Content (file 2
-  // §23 separates these from Marketing/Knowledge Content; their own §19
-  // CMS field lists don't mention submit/approve/schedule verbs), so
-  // these get the simpler direct-edit action set matching DocArticle/
-  // ApiEndpoint's simpler ContentStatus-only model (see schema.prisma's
-  // comment on those models) — no submit/requestChanges/approve/schedule/
-  // rollback actions exist for these two modules at all.
-  const docsActions = ["view", "create", "edit", "delete", "publish", "archive"] as const;
-  const docsPermissions = new Map<string, { id: string }>();
-  for (const action of docsActions) {
-    const permission = await prisma.permission.upsert({
-      where: { module_action: { module: "docs", action } },
-      update: {},
-      create: { module: "docs", action },
-    });
-    docsPermissions.set(action, permission);
-  }
-  async function grantDocs(roleName: string, actions: (typeof docsActions)[number][]) {
-    const roleId = roleIdByName.get(roleName)!;
-    for (const action of actions) {
-      const permission = docsPermissions.get(action)!;
-      await prisma.rolePermission.upsert({
-        where: { roleId_permissionId: { roleId, permissionId: permission.id } },
-        update: {},
-        create: { roleId, permissionId: permission.id },
-      });
-    }
-  }
-  await grantDocs("Content Editor", ["view", "create", "edit"]);
-  // Super Administrator: Delete stays OFF by default (see the seed's own
-  // top-level note).
-  await grantDocs("Super Administrator", ["view", "create", "edit", "publish", "archive"]);
-
-  const apiActions = ["view", "create", "edit", "delete", "publish", "archive"] as const;
-  const apiPermissions = new Map<string, { id: string }>();
-  for (const action of apiActions) {
-    const permission = await prisma.permission.upsert({
-      where: { module_action: { module: "api", action } },
-      update: {},
-      create: { module: "api", action },
-    });
-    apiPermissions.set(action, permission);
-  }
-  async function grantApi(roleName: string, actions: (typeof apiActions)[number][]) {
-    const roleId = roleIdByName.get(roleName)!;
-    for (const action of actions) {
-      const permission = apiPermissions.get(action)!;
-      await prisma.rolePermission.upsert({
-        where: { roleId_permissionId: { roleId, permissionId: permission.id } },
-        update: {},
-        create: { roleId, permissionId: permission.id },
-      });
-    }
-  }
-  await grantApi("Content Editor", ["view", "create", "edit"]);
-  await grantApi("Super Administrator", ["view", "create", "edit", "publish", "archive"]);
-
-  // Knowledge Center FAQ — same simpler direct-edit action set as
-  // Docs/API (no submit/requestChanges/approve/schedule/rollback verbs):
-  // an admin picks Draft/Published/Archived on every save.
+  // Knowledge Center FAQ — a simpler direct-edit action set (no
+  // submit/requestChanges/approve/schedule/rollback verbs): an admin
+  // picks Draft/Published/Archived on every save.
   const faqActions = ["view", "create", "edit", "delete", "publish", "archive"] as const;
   const faqPermissions = new Map<string, { id: string }>();
   for (const action of faqActions) {
@@ -638,20 +581,20 @@ async function main() {
     }
   }
   await grantFaq("Content Editor", ["view", "create", "edit"]);
-  // Super Administrator: Delete stays OFF by default (see the seed's own top-level note).
-  await grantFaq("Super Administrator", ["view", "create", "edit", "publish", "archive"]);
+  await grantFaq("Super Administrator", ["view", "create", "edit", "delete", "publish", "archive"]);
 
-  // grantContent/grantBlog/grantResources/grantCareers/grantMedia/grantPricing
-  // are additive-only (upsert, never delete) — a prior seed run had already
-  // granted Super Administrator `delete` on every one of these modules, and
-  // simply omitting "delete" from the lists above does not revoke it. The
-  // approved role definition requires Delete to start OFF (disabled) for
-  // Super Administrator across the board, so it must be explicitly stripped
-  // here rather than left to silently persist from before this rewrite.
+  // grantContent/grantBlog/grantResources/grantPricing are additive-only
+  // (upsert, never delete) — Delete stays OFF by default for Super
+  // Administrator on these modules, so any stale "delete" grant from a
+  // prior seed run must be explicitly stripped here rather than left to
+  // silently persist. Careers and Media are intentionally excluded from
+  // this strip list — Super Administrator is now explicitly granted
+  // "delete" on both above (grantCareers/grantMedia), so this cleanup must
+  // not immediately undo that grant on every seed run.
   const { count: staleDeleteGrantCount } = await prisma.rolePermission.deleteMany({
     where: {
       roleId: superAdminRoleId,
-      permission: { action: "delete", module: { in: ["content", "blog", "resources", "careers", "media", "pricing", "leads"] } },
+      permission: { action: "delete", module: { in: ["content", "blog", "resources", "pricing", "leads"] } },
     },
   });
   if (staleDeleteGrantCount > 0) {
@@ -1201,34 +1144,6 @@ async function main() {
     }
     console.log(`Seeded initial FAQ content (${faqSeedData.length} items across 4 categories, EN+AR, Published).`);
   }
-
-  // ZynReach Marketplace — module:action permissions, same faqActions/
-  // grantFaq shape. Only two actions: this module never has a
-  // Draft->Review->Publish workflow (see the model comment), it's a
-  // flat view/manage split like Redirects.
-  const marketplaceActions = ["view", "manage"] as const;
-  const marketplacePermissions = new Map<string, { id: string }>();
-  for (const action of marketplaceActions) {
-    const permission = await prisma.permission.upsert({
-      where: { module_action: { module: "marketplace", action } },
-      update: {},
-      create: { module: "marketplace", action },
-    });
-    marketplacePermissions.set(action, permission);
-  }
-  async function grantMarketplace(roleName: string, actions: (typeof marketplaceActions)[number][]) {
-    const roleId = roleIdByName.get(roleName)!;
-    for (const action of actions) {
-      const permission = marketplacePermissions.get(action)!;
-      await prisma.rolePermission.upsert({
-        where: { roleId_permissionId: { roleId, permissionId: permission.id } },
-        update: {},
-        create: { roleId, permissionId: permission.id },
-      });
-    }
-  }
-  await grantMarketplace("Content Editor", ["view"]);
-  await grantMarketplace("Super Administrator", ["view", "manage"]);
 
   // One row per real tool slug already defined in zynreach-website's
   // capabilities.ts (src/lib/content/capabilities.ts) — the Marketplace

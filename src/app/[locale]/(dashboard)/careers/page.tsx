@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { TextField } from "@/components/ui/TextField";
+import { useRouter } from "@/i18n/navigation";
 import { ActionButton } from "@/components/ui/ActionButton";
 import type { Locale } from "@/i18n/routing";
 
@@ -33,9 +33,11 @@ export default function JobListingListPage() {
   const t = useTranslations("dashboard.careers");
   const tCommon = useTranslations("common");
   const locale = useLocale() as Locale;
+  const router = useRouter();
   const [state, setState] = useState<LoadState>({ kind: "loading" });
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [showCreate, setShowCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [canCreate, setCanCreate] = useState(false);
@@ -71,6 +73,28 @@ export default function JobListingListPage() {
     void load(statusFilter);
   }, [load, statusFilter]);
 
+  async function handleCreate() {
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/admin/careers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: `untitled-job-${Date.now()}` }),
+      });
+      if (!res.ok) {
+        setCreateError(t("createError"));
+        return;
+      }
+      const data = await res.json();
+      router.push(`/careers/${data.listing.id}`);
+    } catch {
+      setCreateError(t("createError"));
+    } finally {
+      setCreating(false);
+    }
+  }
+
   async function handleDelete(id: string) {
     if (typeof window !== "undefined" && !window.confirm(t("deleteConfirm"))) return;
     setDeletingId(id);
@@ -104,13 +128,20 @@ export default function JobListingListPage() {
         {canCreate ? (
           <button
             type="button"
-            onClick={() => setShowCreate(true)}
-            className="min-h-9 shrink-0 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700"
+            onClick={() => void handleCreate()}
+            disabled={creating}
+            className="min-h-9 shrink-0 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
           >
-            {t("newListing")}
+            {creating ? t("creating") : t("newListing")}
           </button>
         ) : null}
       </div>
+
+      {createError ? (
+        <div role="alert" className="rounded-md bg-error-bg px-3 py-2 text-sm text-error">
+          {createError}
+        </div>
+      ) : null}
 
       <div className="flex items-center gap-2">
         <label htmlFor="status-filter" className="text-sm font-medium text-neutral-700">
@@ -197,89 +228,6 @@ export default function JobListingListPage() {
         </div>
       ) : null}
 
-      {showCreate ? (
-        <CreateListingModal
-          onClose={() => setShowCreate(false)}
-          onCreated={() => {
-            setShowCreate(false);
-            void load(statusFilter);
-          }}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function CreateListingModal({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
-  const t = useTranslations("dashboard.careers");
-  const [slug, setSlug] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/admin/careers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug }),
-      });
-      if (res.status === 409) {
-        setError(t("slugTaken"));
-        return;
-      }
-      if (!res.ok) {
-        setError(t("createError"));
-        return;
-      }
-      const data = await res.json();
-      onCreated(data.listing.id);
-    } catch {
-      setError(t("createError"));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/40 px-4">
-      <div className="w-full max-w-md rounded-lg bg-surface p-6 shadow-lg">
-        <h2 className="text-base font-semibold text-neutral-900">{t("createTitle")}</h2>
-        <p className="mt-0.5 text-sm text-neutral-500">{t("createSubtitle")}</p>
-
-        {error ? (
-          <div role="alert" className="mt-4 rounded-md bg-error-bg px-3 py-2 text-sm text-error">
-            {error}
-          </div>
-        ) : null}
-
-        <form onSubmit={handleSubmit} className="mt-4 space-y-4" noValidate>
-          <div>
-            <TextField label={t("slugLabel")} name="slug" value={slug} onChange={setSlug} required />
-            <p className="mt-1 text-xs text-neutral-500">{t("slugHint")}</p>
-          </div>
-
-          <div className="flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="min-h-9 rounded-md px-3 text-sm font-medium text-neutral-600 hover:bg-neutral-100"
-            >
-              {t("cancel")}
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="min-h-9 rounded-md bg-primary-600 px-3 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
-            >
-              {submitting ? t("creating") : t("create")}
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }
