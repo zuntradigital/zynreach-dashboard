@@ -80,7 +80,21 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid pricing values.", issues: parsed.error.flatten() }, { status: 400 });
   }
-  const { status, monthlyPrice, annualPrice, currency, trialPeriodDays, ctaTarget, effectiveDate, expirationDate, translations, features } = parsed.data;
+  const {
+    status,
+    monthlyPrice,
+    annualPrice,
+    currency,
+    trialPeriodDays,
+    includedUsers,
+    additionalUserPrice,
+    recommended,
+    ctaTarget,
+    effectiveDate,
+    expirationDate,
+    translations,
+    features,
+  } = parsed.data;
 
   if ((monthlyPrice === null) !== (annualPrice === null)) {
     return NextResponse.json({ error: "Monthly and Annual price must both be set, or both left blank for a custom-quote plan." }, { status: 400 });
@@ -114,6 +128,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
         annualPrice,
         currency,
         trialPeriodDays,
+        includedUsers,
+        additionalUserPrice,
         ctaTarget,
         effectiveDate,
         expirationDate,
@@ -128,7 +144,13 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     });
     return tx.pricingPlan.update({
       where: { id: plan.id },
-      data: { currentVersionId: version.id, status: finalStatus, submittedByUserId: null, reviewComment: null },
+      data: {
+        currentVersionId: version.id,
+        status: finalStatus,
+        submittedByUserId: null,
+        reviewComment: null,
+        ...(recommended !== undefined ? { recommended } : {}),
+      },
       include: { currentVersion: { include: { features: { include: { feature: true } } } } },
     });
   });

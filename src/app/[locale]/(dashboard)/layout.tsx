@@ -5,6 +5,7 @@ import { SESSION_COOKIE_NAME } from "@/lib/auth/guards";
 import { resolveSession } from "@/lib/auth/session";
 import { getEffectivePermissions, hasPermission } from "@/lib/rbac";
 import { DashboardNav } from "@/components/DashboardNav";
+import { DashboardNavbar } from "@/components/DashboardNavbar";
 import { DashboardSidebar } from "@/components/DashboardSidebar";
 
 interface DashboardLayoutProps {
@@ -50,7 +51,10 @@ export default async function DashboardLayout({ children, params }: DashboardLay
           canViewFaq={hasPermission(effective, "faq", "view")}
         />
       </DashboardSidebar>
-      <main className="mx-auto max-w-5xl px-6 py-8 md:ms-64">{children}</main>
+      <div className="md:ms-64">
+        <DashboardNavbar />
+        <main className="mx-auto max-w-5xl px-6 py-8">{children}</main>
+      </div>
     </div>
   );
 }

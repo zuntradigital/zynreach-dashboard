@@ -315,6 +315,18 @@ export const savePricingVersionSchema = z.object({
   annualPrice: z.number().min(0).nullable(),
   currency: z.string().trim().length(3).default("USD"),
   trialPeriodDays: z.number().int().min(0).nullable().default(null),
+  /// Seats included in the base price (e.g. "Up to 3 Users"); null for a
+  /// custom-quote plan (Enterprise) with no fixed seat count.
+  includedUsers: z.number().int().min(0).nullable().default(null),
+  /// Price per seat beyond includedUsers, admin-configurable per plan
+  /// rather than a hardcoded per-plan constant (Pricing spec §11-§13).
+  additionalUserPrice: z.number().min(0).nullable().default(null),
+  /// PricingPlan.recommended ("MOST POPULAR" badge), saved through this
+  /// same endpoint rather than a second route — the editor's single Save
+  /// action already writes both the plan and its new version in one
+  /// transaction, and this is the only plan-level flag the editor UI
+  /// exposes. Optional so existing callers that omit it don't clobber it.
+  recommended: z.boolean().optional(),
   ctaTarget: z.string().trim().min(1).max(200).default("/trial"),
   effectiveDate: z.coerce.date().nullable().default(null),
   expirationDate: z.coerce.date().nullable().default(null),

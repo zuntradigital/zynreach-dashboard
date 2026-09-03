@@ -236,6 +236,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         annualPrice: targetVersion.annualPrice,
         currency: targetVersion.currency,
         trialPeriodDays: targetVersion.trialPeriodDays,
+        includedUsers: targetVersion.includedUsers,
+        additionalUserPrice: targetVersion.additionalUserPrice,
         ctaTarget: targetVersion.ctaTarget,
         effectiveDate: targetVersion.effectiveDate,
         expirationDate: targetVersion.expirationDate,

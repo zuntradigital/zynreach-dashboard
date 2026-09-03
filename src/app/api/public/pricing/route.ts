@@ -74,6 +74,8 @@ export async function GET(request: Request) {
         recommended: plan.recommended,
         badgeLabel: text.badgeLabel ?? null,
         trialPeriodDays: version.trialPeriodDays,
+        includedUsers: version.includedUsers,
+        additionalUserPrice: version.additionalUserPrice,
         promotion: activePromotion
           ? {
               name: (activePromotion.translations as unknown as Record<"en" | "ar", { name: string }>)[locale].name,

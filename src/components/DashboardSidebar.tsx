@@ -2,9 +2,7 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import { LanguageSwitcher } from "@/components/LanguageSwitcher";
 import { LogoutButton } from "@/components/LogoutButton";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 interface DashboardSidebarProps {
   appName: string;
@@ -14,12 +12,15 @@ interface DashboardSidebarProps {
 }
 
 /**
- * The dashboard chrome lives in a fixed inline-start sidebar rather than a
- * top bar. Below md, the sidebar becomes an off-canvas drawer (slid out via
- * `rtl:` so it opens from the correct edge in both directions) toggled by a
- * slim top strip — the only piece of "top bar" left, and only on mobile,
- * since a full-height sidebar can't stay permanently visible on a phone
- * viewport without covering the page content.
+ * Navigation lives in a fixed inline-start sidebar rather than a top bar.
+ * Below md, the sidebar becomes an off-canvas drawer (slid out via `rtl:`
+ * so it opens from the correct edge in both directions) toggled by a slim
+ * top strip, since a full-height sidebar can't stay permanently visible on
+ * a phone viewport without covering the page content. The theme toggle and
+ * language switcher live in `DashboardNavbar` instead (see
+ * (dashboard)/layout.tsx); `LogoutButton` stays here, pinned to the bottom
+ * of the `flex-col` aside below the `flex-1` nav area, so it stays fixed
+ * at the bottom regardless of how long the nav list scrolls.
  */
 export function DashboardSidebar({ appName, openMenuLabel, closeMenuLabel, children }: DashboardSidebarProps) {
   const [open, setOpen] = useState(false);
@@ -82,12 +83,7 @@ export function DashboardSidebar({ appName, openMenuLabel, closeMenuLabel, child
 
         <div className="flex-1 overflow-y-auto px-3 py-4">{children}</div>
 
-        <div className="flex items-center justify-between gap-2 border-t border-sidebar-border px-3 py-2.5">
-          <div className="flex items-center gap-1">
-            <ThemeToggle />
-            <div className="h-4 w-px bg-sidebar-border" aria-hidden="true" />
-            <LanguageSwitcher variant="dark" />
-          </div>
+        <div className="flex items-center border-t border-sidebar-border px-3 py-2.5">
           <LogoutButton />
         </div>
       </aside>

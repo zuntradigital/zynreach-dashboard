@@ -26,15 +26,15 @@ export function LogoutButton() {
       disabled={loading}
       aria-label={t("logout")}
       title={t("logout")}
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-sidebar-text-muted transition-colors hover:bg-error-bg hover:text-error disabled:opacity-60"
+      className="flex w-full shrink-0 items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-sidebar-text-muted transition-colors hover:bg-error-bg hover:text-error disabled:opacity-60"
     >
       {loading ? (
-        <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 animate-spin" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4 shrink-0 animate-spin" aria-hidden="true">
           <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth={2} strokeOpacity={0.25} />
           <path stroke="currentColor" strokeWidth={2} strokeLinecap="round" d="M21 12a9 9 0 0 0-9-9" />
         </svg>
       ) : (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 rtl:-scale-x-100" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="h-4 w-4 shrink-0 rtl:-scale-x-100" aria-hidden="true">
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -42,6 +42,7 @@ export function LogoutButton() {
           />
         </svg>
       )}
+      <span>{t("logout")}</span>
     </button>
   );
 }

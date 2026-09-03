@@ -778,6 +778,14 @@ model PricingVersion {
   annualPrice       Float?
   currency          String    @default("USD")
   trialPeriodDays   Int?
+  /// Seats included in the base price (e.g. "Up to 3 Users"); null for a
+  /// custom-quote plan (Enterprise) with no fixed seat count — same
+  /// both-or-custom reasoning as monthlyPrice/annualPrice above.
+  includedUsers        Int?
+  /// Price per seat beyond includedUsers. Admin-configurable per plan
+  /// (Pricing spec §11-§13: "additional user price must be Dynamic and
+  /// editable from Admin Panel" — never a hardcoded per-plan constant).
+  additionalUserPrice  Float?
   /// A relative System A path (e.g. "/trial", "/enterprise") — a route,
   /// not display text, so it stays outside `translations` and is passed
   /// through by the public API unchanged.

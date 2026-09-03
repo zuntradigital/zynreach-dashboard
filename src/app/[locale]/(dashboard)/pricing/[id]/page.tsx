@@ -34,6 +34,8 @@ interface PricingVersionRow {
   annualPrice: number | null;
   currency: string;
   trialPeriodDays: number | null;
+  includedUsers: number | null;
+  additionalUserPrice: number | null;
   ctaTarget: string;
   translations: Record<"en" | "ar", LocaleText>;
   publishedAt: string | null;
@@ -54,6 +56,7 @@ interface PlanDetail {
   slug: string;
   visibility: "PUBLIC" | "HIDDEN";
   featured: boolean;
+  recommended: boolean;
   status: "DRAFT" | "SUBMITTED" | "IN_REVIEW" | "CHANGES_REQUESTED" | "APPROVED" | "SCHEDULED" | "PUBLISHED" | "ARCHIVED";
   reviewComment: string | null;
   currentVersion: PricingVersionRow | null;
@@ -82,6 +85,10 @@ export default function PricingPlanEditor({ params }: { params: Promise<{ id: st
   const [monthlyPrice, setMonthlyPrice] = useState("");
   const [annualPrice, setAnnualPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
+  const [trialPeriodDays, setTrialPeriodDays] = useState("");
+  const [includedUsers, setIncludedUsers] = useState("");
+  const [additionalUserPrice, setAdditionalUserPrice] = useState("");
+  const [recommended, setRecommended] = useState(false);
   const [ctaTarget, setCtaTarget] = useState("/trial");
   const [featureValues, setFeatureValues] = useState<Record<string, string>>({});
 
@@ -131,6 +138,10 @@ export default function PricingPlanEditor({ params }: { params: Promise<{ id: st
       setMonthlyPrice(version?.monthlyPrice != null ? String(version.monthlyPrice) : "");
       setAnnualPrice(version?.annualPrice != null ? String(version.annualPrice) : "");
       setCurrency(version?.currency ?? "USD");
+      setTrialPeriodDays(version?.trialPeriodDays != null ? String(version.trialPeriodDays) : "");
+      setIncludedUsers(version?.includedUsers != null ? String(version.includedUsers) : "");
+      setAdditionalUserPrice(version?.additionalUserPrice != null ? String(version.additionalUserPrice) : "");
+      setRecommended(planData.plan.recommended ?? false);
       setCtaTarget(version?.ctaTarget ?? "/trial");
       const values: Record<string, string> = {};
       for (const f of version?.features ?? []) values[f.pricingFeatureId] = f.value;
@@ -162,6 +173,9 @@ export default function PricingPlanEditor({ params }: { params: Promise<{ id: st
     try {
       const monthly = monthlyPrice.trim() === "" ? null : Number(monthlyPrice);
       const annual = annualPrice.trim() === "" ? null : Number(annualPrice);
+      const trialDays = trialPeriodDays.trim() === "" ? null : Number(trialPeriodDays);
+      const seatsIncluded = includedUsers.trim() === "" ? null : Number(includedUsers);
+      const extraSeatPrice = additionalUserPrice.trim() === "" ? null : Number(additionalUserPrice);
       const res = await fetch(`/api/admin/pricing/plans/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -170,6 +184,10 @@ export default function PricingPlanEditor({ params }: { params: Promise<{ id: st
           monthlyPrice: monthly,
           annualPrice: annual,
           currency,
+          trialPeriodDays: trialDays,
+          includedUsers: seatsIncluded,
+          additionalUserPrice: extraSeatPrice,
+          recommended,
           ctaTarget,
           translations,
           features: Object.entries(featureValues)
@@ -289,8 +307,22 @@ export default function PricingPlanEditor({ params }: { params: Promise<{ id: st
           <TextField label={t("annualPriceLabel")} name="annualPrice" value={annualPrice} onChange={setAnnualPrice} required={false} disabled={!canEdit} />
           <TextField label={t("currencyLabel")} name="currency" value={currency} onChange={setCurrency} required={false} disabled={!canEdit} />
           <TextField label={t("ctaTargetLabel")} name="ctaTarget" value={ctaTarget} onChange={setCtaTarget} required={false} disabled={!canEdit} />
+          <TextField label={t("trialPeriodDaysLabel")} name="trialPeriodDays" value={trialPeriodDays} onChange={setTrialPeriodDays} required={false} disabled={!canEdit} />
+          <TextField label={t("includedUsersLabel")} name="includedUsers" value={includedUsers} onChange={setIncludedUsers} required={false} disabled={!canEdit} />
+          <TextField label={t("additionalUserPriceLabel")} name="additionalUserPrice" value={additionalUserPrice} onChange={setAdditionalUserPrice} required={false} disabled={!canEdit} />
         </div>
         <p className="mt-1 text-xs text-neutral-500">{t("customQuoteHint")}</p>
+
+        <label className="mt-4 flex items-center gap-2 text-sm text-neutral-700">
+          <input
+            type="checkbox"
+            checked={recommended}
+            onChange={(e) => setRecommended(e.target.checked)}
+            disabled={!canEdit}
+            className="h-4 w-4 rounded border-neutral-300"
+          />
+          {t("recommendedLabel")}
+        </label>
 
         <div className="mt-6 flex gap-1 border-b border-neutral-200">
           {(["en", "ar"] as const).map((locale) => (

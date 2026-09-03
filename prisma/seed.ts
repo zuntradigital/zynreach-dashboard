@@ -1046,6 +1046,69 @@ async function main() {
     console.log(`Seeded initial Careers content (${careersJobListings.length} job listings, EN+AR, Published).`);
   }
 
+  // One-time content migration: System A's Careers content was replaced
+  // wholesale with a 20-role "Master Job Description Library" (Sales,
+  // Marketing, Support, Customer Success, People, Operations, Business
+  // Development), superseding the original 6-role placeholder set the
+  // block above seeded. Only relevant to a database that already had the
+  // old placeholder set (`existingJobListing` above) — a fresh database
+  // was just seeded with the new 20 directly by that same block. A
+  // once-published JobListing is archived, never hard-deleted (see
+  // JobApplication's own schema comment on why — submitted applications
+  // must keep their jobListingId intact), so this archives every
+  // currently-published listing whose slug isn't part of the new library,
+  // then upserts the new 20 by slug (one of them,
+  // "enterprise-account-executive", already existed from the block above
+  // and is reused rather than duplicated — slug is unique). Each upsert
+  // computes its own next version number, so this is safe to run more
+  // than once (e.g. after a partial failure) without violating the
+  // (jobListingId, versionNumber) unique constraint.
+  if (!existingJobListing) {
+    console.log("Careers already fresh-seeded with the master job library — no migration needed.");
+  } else {
+    const newCareersLibrarySlugs = new Set(careersJobListings.map((j) => j.id));
+    const superAdminForCareersMigration = await prisma.adminUser.findFirst({ where: { roles: { some: { roleId: superAdminRoleId } } } });
+    const careersMigrationByUserId = superAdminForCareersMigration?.id;
+    const careersMigrationNow = new Date();
+
+    const stalePublished = await prisma.jobListing.findMany({ where: { status: "PUBLISHED", slug: { notIn: [...newCareersLibrarySlugs] } } });
+    for (const stale of stalePublished) {
+      await prisma.jobListing.update({ where: { id: stale.id }, data: { status: "ARCHIVED" } });
+    }
+
+    const enJobsV2 = careersEnMessages.careersPage.jobs as Record<
+      string,
+      { title: string; team: string; location: string; employmentType: string; description: string; responsibilities: string[]; qualifications: string[]; preferredSkills: string[] }
+    >;
+    const arJobsV2 = careersArMessages.careersPage.jobs as typeof enJobsV2;
+
+    let migratedCount = 0;
+    for (const raw of careersJobListings) {
+      const en = enJobsV2[raw.id];
+      const ar = arJobsV2[raw.id];
+      const listing = await prisma.jobListing.upsert({
+        where: { slug: raw.id },
+        update: { status: "PUBLISHED" },
+        create: { slug: raw.id, status: "PUBLISHED", createdByUserId: careersMigrationByUserId },
+      });
+      const lastVersion = await prisma.jobListingVersion.findFirst({ where: { jobListingId: listing.id }, orderBy: { versionNumber: "desc" } });
+      const version = await prisma.jobListingVersion.create({
+        data: {
+          jobListingId: listing.id,
+          versionNumber: (lastVersion?.versionNumber ?? 0) + 1,
+          datePosted: new Date(raw.datePosted),
+          translations: { en, ar },
+          publishedAt: careersMigrationNow,
+          publishedByUserId: careersMigrationByUserId,
+          createdByUserId: careersMigrationByUserId,
+        },
+      });
+      await prisma.jobListing.update({ where: { id: listing.id }, data: { currentVersionId: version.id } });
+      migratedCount++;
+    }
+    console.log(`Migrated Careers to the master job library: archived ${stalePublished.length} stale listing(s), upserted ${migratedCount} listings (EN+AR, Published).`);
+  }
+
   // One-time content migration: the FAQ module replaces System A's
   // previously-hardcoded messages/*.json faqPage.items content — that
   // content was already live, already-approved production copy, so it's
