@@ -75,9 +75,6 @@ export default async function RootLayout({ children, params }: RootLayoutProps) 
       className={`${inter.variable} ${playfair.variable} ${notoSansArabic.variable} h-full antialiased`}
       suppressHydrationWarning
     >
-      <head>
-        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-      </head>
       <body className="min-h-full font-sans" style={locale === "ar" ? { fontFamily: "var(--font-noto-arabic)" } : undefined}>
         {/* Explicit locale prop, not left to implicit inference — see
             zynreach-website's own hydration-bug postmortem: an implicit
@@ -86,6 +83,15 @@ export default async function RootLayout({ children, params }: RootLayoutProps) 
         <NextIntlClientProvider locale={locale}>
           <ThemeProvider>{children}</ThemeProvider>
         </NextIntlClientProvider>
+        {/* Placed inside <body>, not a manually-authored <head>, matching
+            next/script's own documented beforeInteractive pattern exactly
+            (node_modules/next/dist/docs/.../script.md) — Next hoists this
+            into the served page's real <head> itself regardless of where
+            the JSX sits; wrapping it in an explicit <head> ourselves was
+            what triggered "Encountered a script tag while rendering React
+            component," since it fought Next's own head-injection instead
+            of matching the shape Next expects for this strategy. */}
+        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </body>
     </html>
   );

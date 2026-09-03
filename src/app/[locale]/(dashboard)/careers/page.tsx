@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useLocale, useTranslations } from "next-intl";
-import { useRouter } from "@/i18n/navigation";
+import { Link, useRouter } from "@/i18n/navigation";
 import { ActionButton } from "@/components/ui/ActionButton";
 import type { Locale } from "@/i18n/routing";
 
@@ -125,16 +125,24 @@ export default function JobListingListPage() {
           <h1 className="text-xl font-semibold text-neutral-900">{t("title")}</h1>
           <p className="mt-1 text-sm text-neutral-600">{t("subtitle")}</p>
         </div>
-        {canCreate ? (
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={creating}
-            className="min-h-9 shrink-0 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
+        <div className="flex shrink-0 items-center gap-2">
+          <Link
+            href="/careers/applicants"
+            className="min-h-9 rounded-md border border-neutral-300 px-3 py-1.5 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
           >
-            {creating ? t("creating") : t("newListing")}
-          </button>
-        ) : null}
+            {t("viewApplicants")}
+          </Link>
+          {canCreate ? (
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={creating}
+              className="min-h-9 rounded-md bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700 disabled:opacity-60"
+            >
+              {creating ? t("creating") : t("newListing")}
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {createError ? (

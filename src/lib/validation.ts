@@ -882,8 +882,13 @@ export const jobListingsQuerySchema = z.object({
 
 export const jobApplicationsQuerySchema = z.object({
   jobListingId: z.string().trim().min(1).optional(),
+  status: z.enum(["NEW", "REVIEWED", "ARCHIVED"]).optional(),
   page: z.coerce.number().int().min(1).default(1),
   take: z.coerce.number().int().min(1).max(PAGE_SIZE_MAX).default(20),
+});
+
+export const updateJobApplicationSchema = z.object({
+  status: z.enum(["NEW", "REVIEWED", "ARCHIVED"]),
 });
 
 export type CreateJobListingInput = z.infer<typeof createJobListingSchema>;

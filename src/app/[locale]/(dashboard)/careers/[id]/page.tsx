@@ -233,7 +233,7 @@ export default function JobListingEditor({ params }: { params: Promise<{ id: str
           </Link>
           <h1 className="mt-1 text-xl font-semibold text-neutral-900">{translations.en.title || listing.slug}</h1>
           <p className="mt-0.5 text-sm text-neutral-500">/{listing.slug}</p>
-          <Link href={`/leads?jobListingId=${listing.id}`} className="mt-1 inline-block text-sm text-primary-600 hover:underline">
+          <Link href={`/careers/applicants?jobListingId=${listing.id}`} className="mt-1 inline-block text-sm text-primary-600 hover:underline">
             {t("viewApplications")}
           </Link>
         </div>

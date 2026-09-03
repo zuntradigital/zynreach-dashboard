@@ -19,7 +19,15 @@ export async function GET(request: Request) {
 
   const users = await prisma.adminUser.findMany({
     orderBy: { createdAt: "asc" },
-    include: { roles: { include: { role: true } } },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      status: true,
+      mfaEnabled: true,
+      lastLoginAt: true,
+      roles: { select: { role: { select: { id: true, name: true } } } },
+    },
   });
 
   return NextResponse.json({
@@ -77,7 +85,7 @@ export async function POST(request: Request) {
   }
   const { email, roleIds } = parsed.data;
 
-  const existing = await prisma.adminUser.findUnique({ where: { email } });
+  const existing = await prisma.adminUser.findUnique({ where: { email }, select: { id: true } });
   if (existing) {
     return NextResponse.json({ error: "An account with this email already exists." }, { status: 409 });
   }

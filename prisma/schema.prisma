@@ -1323,15 +1323,28 @@ model JobListingVersion {
 /// nullability is a safety net, not the normal path). `jobTitleSnapshot`
 /// preserves what the applicant applied for even in that edge case, or if
 /// the listing's title is later edited.
+enum JobApplicationStatus {
+  NEW
+  REVIEWED
+  ARCHIVED
+}
+
 model JobApplication {
-  id               String   @id @default(cuid())
+  id               String               @id @default(cuid())
   jobListingId     String?
-  jobTitleSnapshot String   @db.Text
+  jobTitleSnapshot String               @db.Text
   fullName         String
   email            String
-  portfolioUrl     String?  @db.Text
+  portfolioUrl     String?              @db.Text
   gender           String?
   veteranStatus    String?
+  /// Lightweight review-state tracking (SCR-015 sibling: "Current
+  /// application status where appropriate") — deliberately a small,
+  /// independent enum rather than reusing LeadStatus, since an applicant
+  /// is never "routed"/"synced" the way a sales lead is; NEW/REVIEWED/
+  /// ARCHIVED mirrors the same three-state shape Lead already uses for
+  /// its own equivalent concepts (unseen -> looked-at -> put away).
+  status           JobApplicationStatus @default(NEW)
   /// Despite the field name (kept as-is to avoid a migration + existing-row
   /// backfill), this is NOT a public URL — it's the opaque private
   /// storageKey from src/lib/media/storage.ts's savePrivateFile, which

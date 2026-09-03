@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
+import sharp from "sharp";
 import { prisma } from "@/lib/db";
 import { requirePermission } from "@/lib/auth/guards";
 import { recordAudit } from "@/lib/audit";
@@ -7,6 +8,30 @@ import { getClientIp } from "@/lib/request-meta";
 import { mediaMetadataSchema, mediaQuerySchema } from "@/lib/validation";
 import { saveMediaFile, extractImageMetadata } from "@/lib/media/storage";
 import { applyWatermark } from "@/lib/media/image-watermark";
+
+/**
+ * Media Library is images-only by domain design — every upload here goes
+ * through `mediaMetadataSchema`'s required `altText` (a purely image-
+ * accessibility concept; MediaPicker.tsx's own file input is already
+ * `accept="image/*"`) and is stored under `public/uploads/`, which
+ * Next.js serves directly and `next/image`'s Image Optimization API can
+ * fetch. Both are why this allowlist excludes SVG despite it being a
+ * common "image" MIME type: an SVG can carry an embedded `<script>` and,
+ * served from this app's own trusted origin, would be a stored-XSS
+ * vector, not merely an oversized-file risk — the concern the size/type
+ * checks below exist to close. MIME type is cross-checked against the
+ * file's own extension so a mismatched pair (e.g. a renamed `.svg`
+ * claiming `image/png`) is rejected rather than trusted from either
+ * signal alone.
+ */
+const ALLOWED_MEDIA_TYPES: Record<string, string[]> = {
+  "image/jpeg": [".jpg", ".jpeg"],
+  "image/png": [".png"],
+  "image/gif": [".gif"],
+  "image/webp": [".webp"],
+  "image/avif": [".avif"],
+};
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 
 /** SCR-025 Media Library Grid — search/filter per §18's table. */
 export async function GET(request: Request) {
@@ -78,6 +103,33 @@ export async function POST(request: Request) {
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.json({ error: "A file is required." }, { status: 400 });
   }
+  if (file.size > MAX_MEDIA_BYTES) {
+    return NextResponse.json({ error: "File must be smaller than 10MB." }, { status: 400 });
+  }
+  const allowedExtensions = ALLOWED_MEDIA_TYPES[file.type];
+  const lowerName = file.name.toLowerCase();
+  if (!allowedExtensions || !allowedExtensions.some((ext) => lowerName.endsWith(ext))) {
+    return NextResponse.json(
+      { error: "Unsupported file type. Upload a JPEG, PNG, GIF, WebP, or AVIF image." },
+      { status: 400 }
+    );
+  }
+
+  // Content-consistency check: a claimed MIME type and matching extension
+  // are both attacker-supplied metadata, not proof of what the bytes
+  // actually are. Decoding the file as an image before anything is
+  // written to disk closes that gap — a genuine JPEG/PNG/GIF/WebP/AVIF
+  // always decodes with a real width; anything that doesn't (a
+  // mislabeled script, an HTML/SVG payload wearing a fake extension, a
+  // corrupt upload) is rejected here rather than trusted from its
+  // filename/MIME header alone.
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  try {
+    const probe = await sharp(fileBuffer).metadata();
+    if (!probe.width || !probe.height) throw new Error("no dimensions");
+  } catch {
+    return NextResponse.json({ error: "This file doesn't look like a valid image. Try a different file." }, { status: 400 });
+  }
 
   const tagsRaw = formData.get("tags");
   let tags: string[] = [];
@@ -107,8 +159,8 @@ export async function POST(request: Request) {
   // non-image upload with the flag set is stored unchanged.
   const watermarkRequested = formData.get("watermark") === "true";
   let fileToStore: File = file;
-  if (watermarkRequested && file.type.startsWith("image/")) {
-    const watermarkedBuffer = await applyWatermark(Buffer.from(await file.arrayBuffer()));
+  if (watermarkRequested) {
+    const watermarkedBuffer = await applyWatermark(fileBuffer);
     fileToStore = new File([new Uint8Array(watermarkedBuffer)], file.name, { type: file.type });
   }
 

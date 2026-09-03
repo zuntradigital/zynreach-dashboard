@@ -46,7 +46,7 @@ export async function PUT(request: Request, context: { params: Promise<{ id: str
 
   const targetUser = await prisma.adminUser.findUnique({
     where: { id: targetAdminUserId },
-    include: { roles: true },
+    select: { roles: { select: { roleId: true } } },
   });
   if (!targetUser) {
     return NextResponse.json({ error: "Admin user not found." }, { status: 404 });

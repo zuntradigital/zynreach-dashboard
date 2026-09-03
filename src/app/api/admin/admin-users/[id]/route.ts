@@ -34,7 +34,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     return NextResponse.json({ error: "Provide a valid status." }, { status: 400 });
   }
 
-  const targetUser = await prisma.adminUser.findUnique({ where: { id: targetAdminUserId } });
+  const targetUser = await prisma.adminUser.findUnique({ where: { id: targetAdminUserId }, select: { status: true } });
   if (!targetUser) {
     return NextResponse.json({ error: "Admin user not found." }, { status: 404 });
   }
@@ -100,7 +100,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
 
   const targetUser = await prisma.adminUser.findUnique({
     where: { id: targetAdminUserId },
-    include: { roles: { include: { role: true } } },
+    select: { name: true, email: true, status: true, roles: { select: { role: { select: { name: true } } } } },
   });
   if (!targetUser) {
     return NextResponse.json({ error: "Admin user not found." }, { status: 404 });

@@ -20,9 +20,12 @@ export async function GET(request: Request) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid query parameters.", issues: parsed.error.flatten() }, { status: 400 });
   }
-  const { jobListingId, page, take } = parsed.data;
+  const { jobListingId, status, page, take } = parsed.data;
 
-  const where = jobListingId ? { jobListingId } : {};
+  const where = {
+    ...(jobListingId ? { jobListingId } : {}),
+    ...(status ? { status } : {}),
+  };
 
   const [applications, total] = await Promise.all([
     prisma.jobApplication.findMany({

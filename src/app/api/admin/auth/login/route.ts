@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import mysql from "mysql2/promise";
 import { prisma } from "@/lib/db";
 import { verifyPassword } from "@/lib/auth/password";
 import { resolvePostPasswordAuth } from "@/lib/auth/login-flow";
@@ -42,47 +41,7 @@ export async function POST(request: Request) {
   const ipAddress = getClientIp(request);
   const userAgent = getUserAgent(request);
 
-  let adminUser;
-  try {
-    adminUser = await prisma.adminUser.findUnique({ where: { email } });
-  } catch (err) {
-    // TEMPORARY diagnostic — logs only shape/metadata about DATABASE_URL
-    // as this specific running process sees it (never the value itself),
-    // to distinguish "not set", "wrong protocol", and "extra
-    // quotes/whitespace" without exposing credentials in server logs.
-    // Remove once the production DATABASE_URL issue is confirmed fixed.
-    const raw = process.env.DATABASE_URL;
-    console.error("[login] prisma.adminUser.findUnique threw:", err instanceof Error ? err.message : err);
-    console.error("[login] DATABASE_URL diagnostic:", {
-      isSet: raw !== undefined,
-      length: raw?.length ?? 0,
-      startsWithMysqlProtocol: raw?.startsWith("mysql://") ?? false,
-      hasLeadingOrTrailingWhitespace: raw !== undefined && raw !== raw.trim(),
-      isWrappedInQuotes: raw !== undefined && /^['"].*['"]$/.test(raw),
-      first10Chars: raw?.slice(0, 10) ?? null,
-    });
-
-    // TEMPORARY diagnostic — attempts a raw connection with the driver
-    // Prisma's own query engine wraps, bypassing Prisma's error
-    // normalization entirely, to see exactly what MySQL itself reports:
-    // which account/host it matched (or the raw driver error code, e.g.
-    // ER_ACCESS_DENIED_ERROR/1045 vs ER_HOST_NOT_PRIVILEGED/1130) for
-    // this specific connection attempt. Never logs the password. Remove
-    // once the production MySQL access issue is confirmed fixed.
-    if (raw) {
-      try {
-        const connection = await mysql.createConnection(raw);
-        const [rows] = await connection.query("SELECT USER() AS user, CURRENT_USER() AS currentUser, @@hostname AS serverHostname");
-        console.error("[login] raw mysql2 connection SUCCEEDED:", rows);
-        await connection.end();
-      } catch (rawErr) {
-        const e = rawErr as { code?: string; errno?: number; message?: string };
-        console.error("[login] raw mysql2 connection FAILED:", { code: e.code, errno: e.errno, message: e.message });
-      }
-    }
-
-    throw err;
-  }
+  const adminUser = await prisma.adminUser.findUnique({ where: { email } });
 
   // Generic failure response for every rejection path below — never
   // reveal whether the email exists, the password was wrong, or the

@@ -25,7 +25,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const { id: targetAdminUserId } = await context.params;
   const ipAddress = getClientIp(request);
 
-  const targetUser = await prisma.adminUser.findUnique({ where: { id: targetAdminUserId } });
+  const targetUser = await prisma.adminUser.findUnique({ where: { id: targetAdminUserId }, select: { email: true, status: true } });
   if (!targetUser) {
     return NextResponse.json({ error: "Admin user not found." }, { status: 404 });
   }

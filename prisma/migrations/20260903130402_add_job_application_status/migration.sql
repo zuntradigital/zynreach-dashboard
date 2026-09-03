@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE `JobApplication` ADD COLUMN `status` ENUM('NEW', 'REVIEWED', 'ARCHIVED') NOT NULL DEFAULT 'NEW';

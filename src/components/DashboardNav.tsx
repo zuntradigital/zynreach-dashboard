@@ -138,6 +138,20 @@ export function DashboardNav({
           {t("leads")}
         </Link>
       ) : null}
+      {canViewLeads ? (
+        <Link
+          href="/contact-requests"
+          className={linkClass("/contact-requests")}
+          aria-current={isActive("/contact-requests") ? "page" : undefined}
+        >
+          {t("contactRequests")}
+        </Link>
+      ) : null}
+      {canViewLeads ? (
+        <Link href="/subscribers" className={linkClass("/subscribers")} aria-current={isActive("/subscribers") ? "page" : undefined}>
+          {t("subscribers")}
+        </Link>
+      ) : null}
       {canManageSettings ? (
         <Link href="/settings" className={linkClass("/settings")} aria-current={isActive("/settings") ? "page" : undefined}>
           {t("settings")}
